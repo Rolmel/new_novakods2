@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}🎰 Casino — Come&Play{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root {
+  --gold: #f5c842;
+  --dark: #0a0a0f;
+  --card-bg: #111118;
+  --border: #2a2a3a;
+  --green: #00e676;
+  --red: #ff1744;
+}
+body { background: var(--dark); color: #e0e0e0; font-family: 'Rajdhani', sans-serif; }
+.casino-header {
+  text-align: center; padding: 40px 20px 20px;
+  background: radial-gradient(ellipse at top, #1a0a00 0%, var(--dark) 70%);
+}
+.casino-header h1 {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: clamp(1.8rem, 5vw, 3rem);
+  color: var(--gold);
+  text-shadow: 0 0 30px #f5c84288, 0 0 60px #f5c84244;
+  margin: 0;
+}
+.balance-bar {
+  display: inline-block;
+  background: #1a1a24;
+  border: 1px solid var(--gold);
+  border-radius: 50px;
+  padding: 10px 30px;
+  margin: 20px auto;
+  font-size: 1.4rem;
+  color: var(--gold);
+  font-weight: 600;
+}
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 20px;
+  max-width: 900px;
+  margin: 30px auto;
+  padding: 0 20px;
+}
+.game-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 30px 20px;
+  text-align: center;
+  text-decoration: none;
+  color: #e0e0e0;
+  transition: transform .2s, border-color .2s, box-shadow .2s;
+  position: relative;
+  overflow: hidden;
+}
+.game-card::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 0%, #f5c84211, transparent 70%);
+  opacity: 0;
+  transition: opacity .3s;
+}
+.game-card:hover { transform: translateY(-6px); border-color: var(--gold); box-shadow: 0 8px 30px #f5c84222; }
+.game-card:hover::before { opacity: 1; }
+.game-icon { font-size: 3rem; margin-bottom: 12px; }
+.game-name { font-size: 1.1rem; font-weight: 600; color: var(--gold); }
+.game-desc { font-size: 0.82rem; color: #888; margin-top: 6px; }
+
+.history-section { max-width: 900px; margin: 0 auto 40px; padding: 0 20px; }
+.history-section h2 { color: var(--gold); font-family: 'Cinzel Decorative', serif; font-size: 1.1rem; margin-bottom: 16px; }
+.history-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.history-table th { color: #888; padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+.history-table td { padding: 8px 12px; border-bottom: 1px solid #1a1a24; }
+.win { color: var(--green); }
+.loss { color: var(--red); }
+</style>
+
+<div class="casino-header">
+  <h1>🎰 Come&Play Casino</h1>
+  <div class="balance-bar">💰 {{ "%.2f"|format(balance) }} coins</div>
+</div>
+
+<div class="games-grid">
+  <a href="/casino/slots" class="game-card">
+    <div class="game-icon">🎰</div>
+    <div class="game-name">Slots</div>
+    <div class="game-desc">Spēlē automātu</div>
+  </a>
+  <a href="/casino/blackjack" class="game-card">
+    <div class="game-icon">🃏</div>
+    <div class="game-name">Blackjack</div>
+    <div class="game-desc">21 punkti</div>
+  </a>
+  <a href="/casino/highlow" class="game-card">
+    <div class="game-icon">🔼</div>
+    <div class="game-name">High / Low</div>
+    <div class="game-desc">Augstāk vai zemāk?</div>
+  </a>
+  <a href="/casino/keno" class="game-card">
+    <div class="game-icon">🎱</div>
+    <div class="game-name">Keno</div>
+    <div class="game-desc">Izvēlies skaitļus</div>
+  </a>
+  <a href="/casino/bingo" class="game-card">
+    <div class="game-icon">🅱️</div>
+    <div class="game-name">Bingo</div>
+    <div class="game-desc">BINGO!</div>
+  </a>
+  <a href="/casino/holdem" class="game-card">
+    <div class="game-icon">♠️</div>
+    <div class="game-name">Video Poker</div>
+    <div class="game-desc">5 kartes</div>
+  </a>
+  <a href="/casino/tower" class="game-card">
+    <div class="game-icon">🗼</div>
+    <div class="game-name">Tower</div>
+    <div class="game-desc">Kāp augšup!</div>
+  </a>
+  <a href="/casino/history" class="game-card">
+    <div class="game-icon">📊</div>
+    <div class="game-name">Vēsture</div>
+    <div class="game-desc">Visas transakcijas</div>
+  </a>
+  <div class="game-card" id="daily-card" onclick="claimDaily()" style="cursor:pointer;">
+    <div class="game-icon">🎁</div>
+    <div class="game-name">Dienas Bonuss</div>
+    <div class="game-desc" id="daily-desc">+250 monētas katru dienu</div>
+</div>
+
+<script>
+async function claimDaily() {
+    const res  = await fetch('/api/daily', { method: 'POST' });
+    const data = await res.json();
+    document.getElementById('daily-desc').textContent = data.message;
+    if (data.ok) {
+        document.querySelector('.balance-bar').textContent =
+            '💰 ' + parseFloat(data.balance).toFixed(2) + ' coins';
+        document.getElementById('daily-card').style.borderColor = 'var(--green)';
+    } else {
+        document.getElementById('daily-card').style.opacity = '0.4';
+    }
+}
+</script>
+</div>
+
+{% if history %}
+<div class="history-section">
+  <h2>📋 Pēdējās spēles</h2>
+  <table class="history-table">
+    <thead><tr><th>Spēle</th><th>Likme</th><th>Rezultāts</th><th>Izmaksa</th><th>Bilance</th></tr></thead>
+    <tbody>
+    {% for t in history %}
+    <tr>
+      <td>{{ t.game }}</td>
+      <td>{{ "%.2f"|format(t.bet) }}</td>
+      <td>{{ t.result }}</td>
+      <td class="{{ 'win' if t.winnings >= 0 else 'loss' }}">{{ "%+.2f"|format(t.winnings) }}</td>
+      <td>{{ "%.2f"|format(t.balance_after) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

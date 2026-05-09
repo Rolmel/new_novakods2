@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}🎰 Slots{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --card-bg:#111118; --green:#00e676; --red:#ff1744; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; min-height:100vh; }
+.page { max-width:500px; margin:0 auto; padding:30px 20px; text-align:center; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); font-size:2rem; text-shadow:0 0 20px #f5c84266; }
+.machine {
+  background: linear-gradient(145deg, #1a1a2e, #16162a);
+  border: 3px solid var(--gold);
+  border-radius: 24px;
+  padding: 30px;
+  margin: 20px 0;
+  box-shadow: 0 0 40px #f5c84222, inset 0 0 20px #00000066;
+}
+.reels {
+  display: flex; gap: 10px; justify-content: center; margin: 20px 0;
+}
+.reel {
+  width: 90px; height: 90px;
+  background: #0a0a14;
+  border: 2px solid #333;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 3rem;
+  transition: transform 0.1s;
+  position: relative;
+  overflow: hidden;
+}
+.reel.spinning { animation: spin 0.15s linear infinite; }
+@keyframes spin { 0%{transform:translateY(-5px)} 50%{transform:translateY(5px)} 100%{transform:translateY(-5px)} }
+.balance-display { color:var(--gold); font-size:1.3rem; margin:10px 0; font-weight:600; }
+.bet-control { display:flex; align-items:center; justify-content:center; gap:12px; margin:16px 0; }
+.bet-control button {
+  width:36px; height:36px;
+  background:#1a1a2e; border:1px solid var(--gold);
+  color:var(--gold); border-radius:8px; font-size:1.2rem; cursor:pointer;
+}
+.bet-display { color:#fff; font-size:1.2rem; min-width:80px; }
+.spin-btn {
+  width:100%; padding:16px;
+  background: linear-gradient(135deg, #f5c842, #e6a800);
+  border:none; border-radius:12px;
+  font-family:'Rajdhani',sans-serif; font-size:1.4rem; font-weight:700;
+  color:#000; cursor:pointer;
+  transition: transform .1s, box-shadow .2s;
+  box-shadow: 0 4px 20px #f5c84244;
+}
+.spin-btn:hover { transform:translateY(-2px); box-shadow:0 8px 30px #f5c84266; }
+.spin-btn:active { transform:scale(0.97); }
+.spin-btn:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+.result-msg {
+  margin:16px 0;
+  padding:12px 20px;
+  border-radius:10px;
+  font-size:1.1rem;
+  font-weight:600;
+  min-height:46px;
+}
+.result-win { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.result-loss { background:#ff174422; border:1px solid var(--red); color:#ff8888; }
+.result-neutral { background:#1a1a2e; border:1px solid #333; color:#888; }
+.paytable { background:#0a0a14; border-radius:12px; padding:16px; margin-top:20px; text-align:left; }
+.paytable h3 { color:var(--gold); font-size:0.9rem; margin:0 0 10px; text-align:center; }
+.pay-row { display:flex; justify-content:space-between; padding:4px 0; font-size:0.85rem; border-bottom:1px solid #1a1a24; }
+.back-link { display:inline-block; margin-top:20px; color:var(--gold); text-decoration:none; }
+</style>
+
+<div class="page">
+  <a href="/casino" class="back-link">← Atpakaļ uz kazino</a>
+  <h1>🎰 Slots</h1>
+  <div class="machine">
+    <div class="balance-display">💰 <span id="balance">{{ "%.2f"|format(balance) }}</span> coins</div>
+    <div class="reels">
+      <div class="reel" id="r0">🎰</div>
+      <div class="reel" id="r1">🎰</div>
+      <div class="reel" id="r2">🎰</div>
+    </div>
+    <div class="bet-control">
+      <button onclick="changeBet(-5)">−</button>
+      <span class="bet-display">Likme: <b id="bet-val">10</b></span>
+      <button onclick="changeBet(5)">+</button>
+    </div>
+    <button class="spin-btn" id="spin-btn" onclick="spin()">🎰 GRIEZT!</button>
+    <div class="result-msg result-neutral" id="result-msg">Izvēlies likmi un griezies!</div>
+  </div>
+  <div class="paytable">
+    <h3>📋 Izmaksu tabula</h3>
+    <div class="pay-row"><span>💎💎💎</span><span>x50</span></div>
+    <div class="pay-row"><span>7️⃣7️⃣7️⃣</span><span>x20</span></div>
+    <div class="pay-row"><span>⭐⭐⭐</span><span>x10</span></div>
+    <div class="pay-row"><span>🔔🔔🔔</span><span>x7</span></div>
+    <div class="pay-row"><span>🍋🍋🍋</span><span>x5</span></div>
+    <div class="pay-row"><span>🍒🍒🍒</span><span>x3</span></div>
+    <div class="pay-row"><span>Divi vienādi</span><span>x1.5</span></div>
+  </div>
+</div>
+<script>
+let bet = 10;
+let spinning = false;
+const symbols = ['🍒','🍋','🔔','⭐','7️⃣','💎'];
+
+function changeBet(d) {
+  bet = Math.max(1, Math.min(parseFloat(document.getElementById('balance').textContent), bet + d));
+  document.getElementById('bet-val').textContent = bet;
+}
+
+async function spin() {
+  if (spinning) return;
+  spinning = true;
+  const btn = document.getElementById('spin-btn');
+  btn.disabled = true;
+
+  // Animācija
+  const reels = ['r0','r1','r2'];
+  let interval = setInterval(() => {
+    reels.forEach(id => {
+      document.getElementById(id).textContent = symbols[Math.floor(Math.random()*symbols.length)];
+    });
+  }, 80);
+
+  const res = await fetch('/api/casino/slots', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bet})
+  });
+  const data = await res.json();
+
+  setTimeout(() => {
+    clearInterval(interval);
+    reels.forEach((id, i) => document.getElementById(id).textContent = data.reels[i]);
+    spinning = false;
+    btn.disabled = false;
+
+    const msg = document.getElementById('result-msg');
+    if (data.net > 0) {
+      msg.className = 'result-msg result-win';
+      msg.textContent = `🎉 ${data.result} +${data.winnings.toFixed(2)} coins!`;
+    } else {
+      msg.className = 'result-msg result-loss';
+      msg.textContent = `😞 ${data.result}`;
+    }
+    document.getElementById('balance').textContent = data.balance.toFixed(2);
+    bet = Math.min(bet, data.balance);
+    document.getElementById('bet-val').textContent = bet;
+  }, 1200);
+}
+</script>
+{% endblock %}

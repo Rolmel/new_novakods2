@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}SecretBox — Tērzētava{% endblock %}
+
+{% block content %}
+<h2>💬 SecretBox</h2>
+
+<div class="chat-container">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <input type="text" id="new-group-name" placeholder="Jaunas grupas nosaukums...">
+            <button class="btn" onclick="createGroup()" style="width:100%; margin-top:10px;">+ Izveidot grupu</button>
+        </div>
+        <ul class="group-list" id="group-list"></ul>
+    </div>
+
+    <div class="chat-area" id="chat-area" style="display:none;">
+        <div class="chat-header">
+            <h3 id="current-group-name">Izvēlies grupu</h3>
+            <div>
+                <input type="text" id="add-user-name" placeholder="Pievienot lietotāju..." style="width:180px;">
+                <button class="btn-secondary" onclick="addUser()">+ Pievienot</button>
+            </div>
+        </div>
+
+        <div class="messages-box" id="messages-box"></div>
+
+        <div class="chat-input-area">
+            <input type="text" id="msg-input" placeholder="Raksti ziņu..." onkeypress="handleEnter(event)">
+            <button class="btn" onclick="sendMessage()">Sūtīt</button>
+        </div>
+    </div>
+
+    <div id="chat-empty" style="flex:1; display:flex; align-items:center; justify-content:center; color: var(--text-dim); font-size:1.1rem;">
+        ← Izvēlies vai izveido grupu
+    </div>
+</div>
+
+<script>
+    let currentGroupId = null;
+    let myUsername = "{{ session['user_name'] }}";
+    let fetchInterval = null;
+
+    async function loadGroups() {
+        const res = await fetch('/api/chat/groups');
+        const groups = await res.json();
+        const list = document.getElementById('group-list');
+        list.innerHTML = '';
+        groups.forEach(g => {
+            const li = document.createElement('li');
+            li.className = 'group-item' + (g.id === currentGroupId ? ' active' : '');
+            li.innerText = g.name;
+            li.onclick = () => openGroup(g.id, g.name);
+            list.appendChild(li);
+        });
+    }
+
+    async function createGroup() {
+        const name = document.getElementById('new-group-name').value.trim();
+        if (!name) return;
+        await fetch('/api/chat/groups', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name})
+        });
+        document.getElementById('new-group-name').value = '';
+        loadGroups();
+    }
+
+    function openGroup(id, name) {
+        currentGroupId = id;
+        document.getElementById('chat-area').style.display = 'flex';
+        document.getElementById('chat-empty').style.display = 'none';
+        document.getElementById('current-group-name').innerText = name;
+        loadGroups();
+        loadMessages();
+        if (fetchInterval) clearInterval(fetchInterval);
+        fetchInterval = setInterval(loadMessages, 2000);
+    }
+
+    async function loadMessages() {
+        if (!currentGroupId) return;
+        const res = await fetch(`/api/chat/group/${currentGroupId}/messages`);
+        const messages = await res.json();
+        const box = document.getElementById('messages-box');
+        const isAtBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 5;
+        box.innerHTML = '';
+        messages.forEach(m => {
+            const div = document.createElement('div');
+            div.className = m.username === myUsername ? 'msg mine' : 'msg';
+            div.innerHTML = `<span class="msg-author">${m.username}</span>${m.message}`;
+            box.appendChild(div);
+        });
+        if (isAtBottom) box.scrollTop = box.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('msg-input');
+        const text = input.value.trim();
+        if (!text || !currentGroupId) return;
+        await fetch(`/api/chat/group/${currentGroupId}/messages`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: text})
+        });
+        input.value = '';
+        loadMessages();
+        setTimeout(() => {
+            document.getElementById('messages-box').scrollTop = 999999;
+        }, 100);
+    }
+
+    async function addUser() {
+        const username = document.getElementById('add-user-name').value.trim();
+        if (!username || !currentGroupId) return;
+        const res = await fetch(`/api/chat/group/${currentGroupId}/add_user`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username})
+        });
+        const data = await res.json();
+        alert(data.status);
+        document.getElementById('add-user-name').value = '';
+    }
+
+    function handleEnter(e) {
+        if (e.key === 'Enter') sendMessage();
+    }
+
+    window.onload = loadGroups;
+</script>
+{% endblock %}

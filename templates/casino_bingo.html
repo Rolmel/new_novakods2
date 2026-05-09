@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}🅱️ Bingo{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:520px; margin:0 auto; padding:20px; text-align:center; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); }
+.balance-display { color:var(--gold); font-size:1.2rem; font-weight:600; margin:8px 0; }
+.bingo-card {
+  display: grid;
+  grid-template-columns: repeat(5,1fr);
+  gap: 6px;
+  background: #111118;
+  border: 2px solid var(--gold);
+  border-radius: 16px;
+  padding: 16px;
+  margin: 16px 0;
+}
+.bingo-header-row {
+  display: grid;
+  grid-template-columns: repeat(5,1fr);
+  gap: 6px;
+  margin: 0 0 -2px;
+  padding: 0 16px;
+}
+.bingo-col-header {
+  text-align:center;
+  font-family:'Cinzel Decorative',serif;
+  color:var(--gold);
+  font-size:1.1rem;
+  padding:4px 0;
+}
+.bingo-cell {
+  aspect-ratio: 1;
+  display:flex; align-items:center; justify-content:center;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  font-size: clamp(0.7rem, 2vw, 1rem);
+  font-weight: 600;
+  transition: all .2s;
+}
+.bingo-cell.free { background:var(--gold); color:#000; }
+.bingo-cell.called { background:#2a3060; border-color:#4a5090; color:#8888ff; }
+.bingo-cell.marked { background:var(--green); color:#000; border-color:var(--green); font-weight:700; animation: mark .3s ease; }
+@keyframes mark { 0%{transform:scale(1)} 50%{transform:scale(1.15)} 100%{transform:scale(1)} }
+.called-display {
+  background:#0a0a14; border:1px solid #2a2a3a; border-radius:12px;
+  padding:12px; margin:10px 0; min-height:50px;
+}
+.called-display h3 { color:#888; font-size:0.8rem; margin:0 0 6px; text-transform:uppercase; letter-spacing:1px; }
+.called-nums { display:flex; flex-wrap:wrap; gap:4px; justify-content:center; }
+.called-num {
+  width:28px; height:28px;
+  background:#1a1a2e; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:0.75rem; font-weight:600;
+}
+.called-num.latest { background:var(--gold); color:#000; }
+.controls { background:#111118; border:1px solid #2a2a3a; border-radius:16px; padding:16px; }
+.bet-row { display:flex; align-items:center; justify-content:center; gap:10px; margin:8px 0; }
+.bet-row button { width:32px;height:32px; background:#1a1a2e; border:1px solid var(--gold); color:var(--gold); border-radius:8px; cursor:pointer; }
+.btn-new, .btn-call {
+  width:100%; padding:14px;
+  border:none; border-radius:10px;
+  font-family:'Rajdhani',sans-serif; font-size:1.1rem; font-weight:700;
+  cursor:pointer; margin-top:6px;
+}
+.btn-new { background:linear-gradient(135deg,#f5c842,#e6a800); color:#000; }
+.btn-call { background:linear-gradient(135deg,#4a90d9,#2266aa); color:#fff; }
+.btn-call:disabled, .btn-new:disabled { opacity:.4; cursor:not-allowed; }
+.result-msg { padding:10px; border-radius:8px; margin:10px 0; font-weight:600; }
+.win  { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.loss { background:#ff174422; border:1px solid var(--red); color:#ff8888; }
+.neutral { background:#1a1a24; border:1px solid #333; color:#888; }
+.back-link { color:var(--gold); text-decoration:none; }
+</style>
+
+<div class="page">
+  <a href="/casino" class="back-link">← Atpakaļ</a>
+  <h1>🅱️ Bingo</h1>
+  <div class="balance-display">💰 <span id="balance">{{ "%.2f"|format(balance) }}</span></div>
+
+  <div class="bingo-header-row">
+    <div class="bingo-col-header">B</div>
+    <div class="bingo-col-header">I</div>
+    <div class="bingo-col-header">N</div>
+    <div class="bingo-col-header">G</div>
+    <div class="bingo-col-header">O</div>
+  </div>
+  <div class="bingo-card" id="bingo-card">
+    <div style="grid-column:1/-1;color:#888;font-size:0.9rem;padding:20px">Nospied "Jauna spēle" lai saņemtu karti!</div>
+  </div>
+
+  <div class="called-display">
+    <h3>Izsauktie skaitļi (<span id="called-count">0</span>)</h3>
+    <div class="called-nums" id="called-nums"></div>
+  </div>
+
+  <div class="controls">
+    <div class="result-msg neutral" id="result-msg">Sāc jaunu spēli!</div>
+    <div class="bet-row">
+      <button onclick="changeBet(-5)">−</button>
+      <span>Likme: <b id="bet-val">10</b> coins</span>
+      <button onclick="changeBet(5)">+</button>
+    </div>
+    <button class="btn-new" id="btn-new" onclick="newCard()">🎴 Jauna spēle</button>
+    <button class="btn-call" id="btn-call" onclick="callNumber()" disabled>📢 Izsaukt skaitli</button>
+  </div>
+</div>
+
+<script>
+let bet = 10;
+let cardData = null;
+let calledNums = [];
+let gameActive = false;
+
+function changeBet(d) {
+  if (gameActive) return;
+  bet = Math.max(1, Math.min(parseFloat(document.getElementById('balance').textContent)||9999, bet+d));
+  document.getElementById('bet-val').textContent = bet;
+}
+
+async function newCard() {
+  const res = await fetch('/api/casino/bingo/new_card', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bet})
+  });
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+
+  cardData = data.card;
+  calledNums = [];
+  gameActive = true;
+
+  renderCard();
+  document.getElementById('called-nums').innerHTML = '';
+  document.getElementById('called-count').textContent = 0;
+  document.getElementById('btn-call').disabled = false;
+  document.getElementById('btn-new').disabled = true;
+  const msg = document.getElementById('result-msg');
+  msg.className = 'result-msg neutral';
+  msg.textContent = 'Spiedi "Izsaukt skaitli" lai spēlētu!';
+}
+
+function renderCard() {
+  const grid = document.getElementById('bingo-card');
+  grid.innerHTML = '';
+  for (let row=0; row<5; row++) {
+    for (let col=0; col<5; col++) {
+      const val = cardData[row][col];
+      const cell = document.createElement('div');
+      if (val === 'FREE') {
+        cell.className = 'bingo-cell free marked';
+        cell.textContent = '★';
+      } else {
+        const isMarked = calledNums.includes(val);
+        cell.className = 'bingo-cell' + (isMarked ? ' marked' : '');
+        cell.textContent = val;
+        cell.id = `bc-${row}-${col}`;
+      }
+      grid.appendChild(cell);
+    }
+  }
+}
+
+async function callNumber() {
+  const res = await fetch('/api/casino/bingo/call', {method:'POST'});
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+
+  calledNums = data.called;
+  document.getElementById('called-count').textContent = calledNums.length;
+
+  // Atjaunina izsaukto sarakstu
+  const numsDiv = document.getElementById('called-nums');
+  const span = document.createElement('div');
+  span.className = 'called-num latest';
+  span.textContent = data.number;
+  // Noņem 'latest' iepriekšējam
+  numsDiv.querySelectorAll('.called-num').forEach(el => el.classList.remove('latest'));
+  numsDiv.appendChild(span);
+
+  // Atzīmē kartē
+  renderCard();
+
+  if (data.bingo) {
+    gameActive = false;
+    document.getElementById('btn-call').disabled = true;
+    document.getElementById('btn-new').disabled = false;
+    document.getElementById('balance').textContent = data.balance.toFixed(2);
+    const msg = document.getElementById('result-msg');
+    msg.className = 'result-msg win';
+    msg.textContent = `🎉 BINGO! +${data.winnings.toFixed(2)} coins! (${calledNums.length} izsaukumi)`;
+  }
+}
+</script>
+{% endblock %}

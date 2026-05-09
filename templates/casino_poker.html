@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+{% block title %}♠️ Texas Hold'em Live{% endblock %}
+{% block content %}
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+  :root {
+    --gold: #f5c842;
+    --dark: #0a0a0f;
+    --green: #00e676;
+    --red: #ff1744;
+    --felt: #1e5128;
+  }
+  body { background: var(--dark); color: #e0e0e0; font-family: 'Rajdhani', sans-serif; margin: 0; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  h1, h2 { font-family: 'Cinzel Decorative', serif; color: var(--gold); text-align: center; }
+  .back-link { color: var(--gold); text-decoration: none; display: inline-block; margin-bottom: 10px; }
+
+  /* ── Lobby ── */
+  #lobby .tables-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+  }
+  .table-card {
+    background: #111118;
+    border: 1px solid #2a2a3a;
+    border-radius: 16px;
+    padding: 20px;
+    text-align: center;
+  }
+  .table-card h3 { color: var(--gold); margin: 0 0 12px; }
+  .table-card .seats {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .seat {
+    width: 48px;
+    height: 48px;
+    background: #1a1a2e;
+    border: 2px solid #333;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .seat.occupied { border-color: var(--gold); background: #2a2a3a; }
+  .seat:hover { border-color: var(--gold); transform: scale(1.1); }
+  .seat .player-name { font-size: 0.7rem; white-space: nowrap; }
+  .join-btn {
+    background: linear-gradient(135deg, #f5c842, #e6a800);
+    border: none;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+  .join-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Table View ── */
+  #table-view { display: none; }
+  .felt {
+    position: relative;
+    width: 100%;
+    max-width: 900px;
+    height: 500px;
+    margin: 0 auto;
+    background: radial-gradient(ellipse at center, #2d6a4f 0%, #1b4332 60%, #081c15 100%);
+    border: 6px solid #b8860b;
+    border-radius: 50%;
+    box-shadow: 0 0 30px rgba(245,200,66,0.3);
+    overflow: hidden;
+  }
+  .community-cards {
+    position: absolute;
+    top: 45%; left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    gap: 8px;
+    z-index: 10;
+  }
+  .card-img {
+    width: 50px;
+    height: 70px;
+    background: white;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: black;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.5);
+  }
+  .card-img.back { background: linear-gradient(135deg, #1a1a8a, #3333cc); color: transparent; }
+
+  .seat-circle {
+    position: absolute;
+    width: 80px;
+    height: 80px;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) rotate(calc(var(--angle) * 1deg)) translate(0, -180px) rotate(calc(var(--angle) * -1deg));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+  }
+  .seat-circle .username {
+    background: rgba(0,0,0,0.6);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    margin-bottom: 4px;
+  }
+  .hole-cards {
+    display: flex;
+    gap: 4px;
+  }
+  .hole-card {
+    width: 36px;
+    height: 50px;
+    background: white;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: black;
+  }
+  .hole-card.back { background: linear-gradient(135deg, #1a1a8a, #3333cc); color: transparent; }
+  .pot-display {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--gold);
+    font-size: 1.4rem;
+    font-weight: bold;
+    background: rgba(0,0,0,0.7);
+    padding: 4px 16px;
+    border-radius: 20px;
+    z-index: 20;
+  }
+  .player-info {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+    background: rgba(0,0,0,0.7);
+    padding: 8px 20px;
+    border-radius: 20px;
+    z-index: 20;
+  }
+  .action-panel {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+  .action-btn {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 1rem;
+  }
+  .action-btn.fold { background: #ff1744; color: white; }
+  .action-btn.check { background: #4caf50; color: white; }
+  .action-btn.call { background: #2196f3; color: white; }
+  .action-btn.raise { background: #ff9800; color: white; }
+  .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .raise-input {
+    width: 70px;
+    padding: 6px;
+    border-radius: 6px;
+    border: 1px solid var(--gold);
+    background: #1a1a2e;
+    color: white;
+  }
+  .event-log {
+    background: #111118;
+    border: 1px solid #2a2a3a;
+    border-radius: 12px;
+    padding: 10px;
+    max-height: 100px;
+    overflow-y: auto;
+    margin: 10px 0;
+    font-size: 0.85rem;
+  }
+</style>
+
+<div class="container">
+  <a href="/casino" class="back-link">← Atpakaļ uz Kazino</a>
+  <div id="lobby">
+    <h1>♠️ Texas Hold'em</h1>
+    <h2>Izvēlies galdu</h2>
+    <div class="tables-grid" id="tables-grid"></div>
+  </div>
+
+  <div id="table-view">
+    <h1 id="table-name">Galds</h1>
+    <div class="felt" id="felt"></div>
+    <div class="event-log" id="event-log"></div>
+    <div class="action-panel" id="action-panel">
+      <button class="action-btn fold" id="btn-fold">❌ Fold</button>
+      <button class="action-btn check" id="btn-check">✋ Check</button>
+      <button class="action-btn call" id="btn-call">📞 Call</button>
+      <input class="raise-input" id="raise-amount" type="number" placeholder="Summa" min="0">
+      <button class="action-btn raise" id="btn-raise">💰 Raise</button>
+      <button class="action-btn fold" id="btn-leave">🚪 Pamest galdu</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<script>
+  const userId = {{ user_id }};
+  const userName = "{{ user_name }}";
+  const socket = io();
+
+  let currentTableId = null;
+  let state = null;
+
+  socket.on('connect', () => {
+    console.log('🟢 Socket connected');
+    socket.emit('holdem_get_tables');
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.warn('🔴 Disconnected:', reason);
+  });
+
+  socket.on('connect_error', (err) => {
+    console.error('❌ Connection error:', err.message);
+  });
+
+  socket.on('holdem_tables_list', (tables) => {
+    console.log('📋 Tables:', tables);
+    const grid = document.getElementById('tables-grid');
+    if (!tables || tables.length === 0) {
+      grid.innerHTML = '<p>Nav galdu.</p>';
+      return;
+    }
+    grid.innerHTML = tables.map(t => `
+      <div class="table-card">
+        <h3>${t.name}</h3>
+        <div>Blinds: ${t.blinds}</div>
+        <div>Stāvoklis: ${t.stage === 'waiting' ? 'Gaida spēlētājus' : 'Spēlē'}</div>
+        <div class="seats">
+          ${t.seats.map((s,i) => `
+            <div class="seat ${s.occupied ? 'occupied' : ''}" 
+                 onclick="selectSeat(${t.id}, ${i})" 
+                 title="${s.occupied ? s.player_name : 'Brīva vieta'}">
+              ${s.occupied ? `<span class="player-name">${s.player_name.split(' ')[0]}</span>` : '<span>+</span>'}
+            </div>
+          `).join('')}
+        </div>
+        <button class="join-btn" onclick="joinTableById(${t.id})">Pievienoties</button>
+      </div>
+    `).join('');
+  });
+
+  let selectedSeat = -1;
+  window.selectSeat = function(tableId, seatIdx) { selectedSeat = seatIdx; };
+
+  window.joinTableById = function(tableId) {
+    if (selectedSeat === -1) {
+      alert('Izvēlies brīvu vietu!');
+      return;
+    }
+    socket.emit('holdem_join_table', { table_id: tableId, seat: selectedSeat });
+  };
+
+  socket.on('holdem_joined', (data) => {
+    currentTableId = data.table_id;
+    document.getElementById('lobby').style.display = 'none';
+    document.getElementById('table-view').style.display = 'block';
+    socket.emit('holdem_watch_table', { table_id: currentTableId });
+  });
+
+  socket.on('holdem_left', () => {
+    currentTableId = null;
+    document.getElementById('table-view').style.display = 'none';
+    document.getElementById('lobby').style.display = 'block';
+    socket.emit('holdem_get_tables');
+  });
+
+  socket.on('holdem_state', (s) => { state = s; renderTable(); });
+
+  socket.on('holdem_private_cards', (data) => {
+    if (state && state.players[userId]) {
+      state.players[userId].cards = data.cards;
+      renderTable();
+    }
+  });
+
+  socket.on('holdem_event', (data) => {
+    document.getElementById('event-log').innerHTML += `<div>${data.msg}</div>`;
+    document.getElementById('event-log').scrollTop = document.getElementById('event-log').scrollHeight;
+  });
+
+  socket.on('holdem_error', (data) => alert(data.msg));
+
+  function renderTable() {
+    if (!state) return;
+    document.getElementById('table-name').innerText = state.name;
+    const felt = document.getElementById('felt');
+    const anglePerSeat = 360 / 6;
+
+    let html = '<div class="pot-display">💰 ' + state.pot.toFixed(0) + '</div>';
+    html += '<div class="community-cards">';
+    for (let c of state.community) {
+      html += `<div class="card-img">${c.rank}${c.suit}</div>`;
+    }
+    html += '</div>';
+
+    state.seats.forEach((uid, idx) => {
+      const angle = anglePerSeat * idx;
+      const player = uid ? state.players[uid] : null;
+      html += `<div class="seat-circle" style="--angle: ${angle};">`;
+      if (player) {
+        html += `<div class="username">${player.name}</div>`;
+        if (player.cards) {
+          html += '<div class="hole-cards">';
+          player.cards.forEach(card => {
+            if (card === 'back') html += '<div class="hole-card back">🂠</div>';
+            else html += `<div class="hole-card">${card.rank}${card.suit}</div>`;
+          });
+          html += '</div>';
+        }
+        if (player.folded) html += '<small>(fold)</small>';
+      } else {
+        html += '<div class="username">-</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    felt.innerHTML = html;
+
+    const myPlayer = state.players[userId];
+    const mySeat = myPlayer ? myPlayer.seat : -1;
+    const isMyTurn = state.current_seat === mySeat && state.to_act && state.to_act[0] === userId;
+    document.getElementById('btn-fold').disabled = !isMyTurn;
+    document.getElementById('btn-check').disabled = !isMyTurn || (myPlayer && state.current_bet > myPlayer.round_bet);
+    document.getElementById('btn-call').disabled = !isMyTurn;
+    document.getElementById('btn-raise').disabled = !isMyTurn;
+    document.getElementById('btn-leave').style.display = myPlayer ? 'inline-block' : 'none';
+  }
+
+  document.getElementById('btn-fold').addEventListener('click', () => socket.emit('holdem_action', { action: 'fold' }));
+  document.getElementById('btn-check').addEventListener('click', () => socket.emit('holdem_action', { action: 'check' }));
+  document.getElementById('btn-call').addEventListener('click', () => socket.emit('holdem_action', { action: 'call' }));
+  document.getElementById('btn-raise').addEventListener('click', () => {
+    const amount = parseFloat(document.getElementById('raise-amount').value) || 0;
+    socket.emit('holdem_action', { action: 'raise', amount });
+  });
+  document.getElementById('btn-leave').addEventListener('click', () => {
+    socket.emit('holdem_leave_table', { table_id: currentTableId });
+  });
+
+  socket.on('connect', () => {
+    if (currentTableId) socket.emit('holdem_watch_table', { table_id: currentTableId });
+  });
+</script>
+{% endblock %}

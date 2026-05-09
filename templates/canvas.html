@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}PixelWar — r/place{% endblock %}
+
+{% block content %}
+<h2>🎨 PixelWar — Place your block!</h2>
+
+<div class="canvas-layout">
+    <canvas id="gameCanvas" width="500" height="500"></canvas>
+
+    <div class="canvas-sidebar">
+        <h3>Izvēlies Krāsu</h3>
+        <div class="colors">
+            <button class="color-btn active" style="background:#ff0000;" onclick="setColor('#ff0000',this)"></button>
+            <button class="color-btn" style="background:#ff8800;" onclick="setColor('#ff8800',this)"></button>
+            <button class="color-btn" style="background:#ffff00;" onclick="setColor('#ffff00',this)"></button>
+            <button class="color-btn" style="background:#00ff00;" onclick="setColor('#00ff00',this)"></button>
+            <button class="color-btn" style="background:#00ffcc;" onclick="setColor('#00ffcc',this)"></button>
+            <button class="color-btn" style="background:#0000ff;" onclick="setColor('#0000ff',this)"></button>
+            <button class="color-btn" style="background:#7c3aed;" onclick="setColor('#7c3aed',this)"></button>
+            <button class="color-btn" style="background:#ff00ff;" onclick="setColor('#ff00ff',this)"></button>
+            <button class="color-btn" style="background:#ffffff;" onclick="setColor('#ffffff',this)"></button>
+            <button class="color-btn" style="background:#888888;" onclick="setColor('#888888',this)"></button>
+            <button class="color-btn" style="background:#000000;" onclick="setColor('#000000',this)"></button>
+        </div>
+
+        <p class="status-text" id="statusText">Gatavs zīmēt!</p>
+        <div class="cooldown-bar-bg" id="cooldownBar">
+            <div class="cooldown-bar-fill" id="cooldownFill"></div>
+        </div>
+
+        <h3 style="margin-top:24px;">🏆 Scoreboard</h3>
+        <table class="score-table">
+            <thead><tr><th>Rank</th><th>Lietotājs</th><th>Pikseļi</th></tr></thead>
+            <tbody id="scoreboard"></tbody>
+        </table>
+
+        {% if session.get('is_admin') %}
+        <hr class="divider">
+        <h3 style="color: var(--danger);">⚙️ Admin</h3>
+        <button class="btn-delete" onclick="clearCanvas()" style="width:100%; padding:12px;">
+            🗑 Notīrīt Canvas + Scores
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const BLOCK_SIZE = 10;
+    let selectedColor = '#ff0000';
+
+    function setColor(color, btn) {
+        selectedColor = color;
+        document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    }
+
+    async function loadData() {
+        const response = await fetch('/api/canvas_data');
+        const data = await response.json();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        data.pixels.forEach(p => {
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x * BLOCK_SIZE, p.y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+        });
+        const sb = document.getElementById('scoreboard');
+        sb.innerHTML = '';
+        data.scores.forEach((s, i) => {
+            const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i+1}`;
+            sb.innerHTML += `<tr><td>${medal}</td><td>${s.username}</td><td>${s.count}</td></tr>`;
+        });
+    }
+
+    canvas.addEventListener('mousedown', async function(e) {
+        const rect = canvas.getBoundingClientRect();
+        const gridX = Math.floor((e.clientX - rect.left) / BLOCK_SIZE);
+        const gridY = Math.floor((e.clientY - rect.top) / BLOCK_SIZE);
+        ctx.fillStyle = selectedColor;
+        ctx.fillRect(gridX * BLOCK_SIZE, gridY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+        await fetch('/api/place', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ x: gridX, y: gridY, color: selectedColor })
+        });
+        loadData();
+    });
+
+    async function clearCanvas() {
+        if (!confirm('Tiešām notīrīt VISU canvas un visus scores?')) return;
+        const res = await fetch('/api/clear_canvas', { method: 'POST' });
+        const data = await res.json();
+        alert(data.status ? 'Canvas notīrīts!' : 'Kļūda: ' + data.error);
+        loadData();
+    }
+
+    loadData();
+    setInterval(loadData, 3000);
+</script>
+{% endblock %}

@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}📈 Prognozes{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; --blue:#2196f3; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:860px; margin:0 auto; padding:24px 20px; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center;
+     text-shadow:0 0 30px #f5c84244; margin-bottom:6px; }
+.balance-bar { text-align:center; color:var(--gold); font-size:1.1rem; margin-bottom:24px; font-weight:600; }
+.filter-row { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-bottom:24px; }
+.filter-btn {
+  padding:6px 18px; border-radius:20px; border:1px solid #2a2a3a;
+  background:#111118; color:#888; cursor:pointer; font-family:'Rajdhani',sans-serif;
+  font-size:0.88rem; transition:all .15s;
+}
+.filter-btn.active, .filter-btn:hover { border-color:var(--gold); color:var(--gold); }
+.events-grid { display:flex; flex-direction:column; gap:14px; }
+.event-card {
+  background:#111118; border:1px solid #2a2a3a; border-radius:14px;
+  padding:20px; transition:border-color .2s, transform .15s;
+  text-decoration:none; display:block; color:inherit;
+}
+.event-card:hover { border-color:#4a4a6a; transform:translateY(-2px); }
+.event-card.open:hover { border-color:var(--green); }
+.event-card.resolved { opacity:.7; }
+.ec-top { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; }
+.ec-title { font-size:1.1rem; font-weight:700; color:#e0e0e0; margin-bottom:4px; }
+.ec-meta { color:#555; font-size:0.78rem; }
+.ec-badges { display:flex; gap:8px; align-items:center; flex-shrink:0; }
+.badge {
+  display:inline-block; padding:3px 12px; border-radius:20px;
+  font-size:0.75rem; font-weight:700; white-space:nowrap;
+}
+.badge-open    { background:#00e67618; border:1px solid var(--green); color:var(--green); }
+.badge-closed  { background:#ff174418; border:1px solid var(--red); color:var(--red); }
+.badge-resolved{ background:#f5c84218; border:1px solid var(--gold); color:var(--gold); }
+.badge-cat { background:#2196f318; border:1px solid var(--blue); color:var(--blue); }
+.ec-bars { margin-top:14px; display:flex; flex-direction:column; gap:6px; }
+.bar-wrap { display:flex; align-items:center; gap:10px; }
+.bar-label { font-size:0.82rem; color:#aaa; min-width:60px; }
+.bar-track { flex:1; height:8px; background:#1a1a2e; border-radius:4px; overflow:hidden; }
+.bar-fill { height:100%; border-radius:4px; transition:width .6s ease; }
+.bar-fill-0 { background:linear-gradient(90deg,#2196f3,#6ec6ff); }
+.bar-fill-1 { background:linear-gradient(90deg,#ff1744,#ff8a80); }
+.bar-fill-2 { background:linear-gradient(90deg,#00e676,#b9f6ca); }
+.bar-fill-3 { background:linear-gradient(90deg,#ff9800,#ffe0b2); }
+.bar-pct { font-size:0.78rem; color:var(--gold); font-weight:700; min-width:40px; text-align:right; }
+.ec-footer { display:flex; justify-content:space-between; margin-top:12px; font-size:0.78rem; color:#444; }
+.ec-footer span { color:#666; }
+.empty { text-align:center; color:#333; padding:60px; font-size:1.1rem; }
+
+/* Admin create panel */
+.create-panel {
+  background:#0e0e18; border:1px solid #2a2a3a; border-radius:14px;
+  padding:20px; margin-bottom:24px;
+}
+.create-panel summary { color:var(--gold); cursor:pointer; font-weight:700; font-size:0.95rem; }
+.create-panel summary:hover { opacity:.8; }
+.create-form { margin-top:16px; display:flex; flex-direction:column; gap:10px; }
+.create-form input, .create-form textarea, .create-form select {
+  width:100%; padding:10px 14px; background:#0a0a14; color:#fff;
+  border:1px solid #333; border-radius:8px;
+  font-family:'Rajdhani',sans-serif; font-size:0.92rem;
+}
+.create-form input:focus, .create-form textarea:focus { outline:none; border-color:var(--gold); }
+.create-form label { font-size:0.78rem; color:#666; text-transform:uppercase; letter-spacing:.5px; }
+.options-list { display:flex; flex-direction:column; gap:6px; }
+.option-inp { display:flex; gap:8px; }
+.option-inp input { flex:1; }
+.add-opt-btn {
+  background:none; border:1px dashed #333; color:#666; border-radius:8px;
+  padding:8px; cursor:pointer; font-family:'Rajdhani',sans-serif;
+  transition:all .15s; font-size:0.88rem;
+}
+.add-opt-btn:hover { border-color:var(--gold); color:var(--gold); }
+.create-submit {
+  padding:12px 28px; background:linear-gradient(135deg,#f5c842,#e6a800);
+  border:none; border-radius:10px; font-weight:700; cursor:pointer;
+  font-family:'Rajdhani',sans-serif; font-size:1rem; color:#000; align-self:flex-start;
+}
+.msg-box { padding:10px; border-radius:8px; margin-top:8px; font-weight:600; display:none; }
+.msg-ok  { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.msg-err { background:#ff174422; border:1px solid var(--red); color:#ff8888; }
+</style>
+
+<div class="page">
+  <h1>📈 Prognozes</h1>
+  <div class="balance-bar">💰 {{ "%.2f"|format(balance) }} coins</div>
+
+  {% if is_admin %}
+  <details class="create-panel">
+    <summary>⚙️ Izveidot jaunu notikumu (Admin)</summary>
+    <div class="create-form" id="create-form">
+      <div>
+        <label>Nosaukums</label>
+        <input id="cf-title" type="text" placeholder="piem. Vai Bitcoin sasniegs $100k līdz gada beigām?">
+      </div>
+      <div>
+        <label>Apraksts (neobligāts)</label>
+        <textarea id="cf-desc" rows="2" placeholder="Papildu informācija..."></textarea>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label>Kategorija</label>
+          <select id="cf-cat">
+            <option value="general">Vispārīgs</option>
+            <option value="sports">Sports</option>
+            <option value="crypto">Crypto</option>
+            <option value="politics">Politika</option>
+          </select>
+        </div>
+        <div>
+          <label>Termiņš</label>
+          <input id="cf-closes" type="datetime-local">
+        </div>
+      </div>
+      <div>
+        <label>Opcijas</label>
+        <div class="options-list" id="options-list">
+          <div class="option-inp"><input type="text" placeholder="Opcija 1 (piem. Jā)"></div>
+          <div class="option-inp"><input type="text" placeholder="Opcija 2 (piem. Nē)"></div>
+        </div>
+        <button class="add-opt-btn" onclick="addOption()" style="margin-top:6px;width:100%;">+ Pievienot opciju</button>
+      </div>
+      <div>
+        <button class="create-submit" onclick="createEvent()">🚀 Izveidot</button>
+        <div class="msg-box" id="create-msg"></div>
+      </div>
+    </div>
+  </details>
+  {% endif %}
+
+  <div class="filter-row">
+    <button class="filter-btn active" onclick="filterEvents('all', this)">Visi</button>
+    <button class="filter-btn" onclick="filterEvents('open', this)">🟢 Aktīvie</button>
+    <button class="filter-btn" onclick="filterEvents('resolved', this)">🏆 Atrisinātie</button>
+  </div>
+
+  <div class="events-grid" id="events-grid">
+    {% for e in events %}
+    {% set total_vol = e.total_volume or 1 %}
+    <a class="event-card {{ e.status }}" href="/predictions/{{ e.id }}" data-status="{{ e.status }}">
+      <div class="ec-top">
+        <div>
+          <div class="ec-title">{{ e.title }}</div>
+          <div class="ec-meta">
+            📁 {{ e.category }} &nbsp;·&nbsp;
+            ⏰ {{ e.closes_at.strftime('%d.%m.%Y %H:%M') if e.closes_at else '—' }}
+            {% if e.total_volume %}&nbsp;·&nbsp; 💰 {{ "%.0f"|format(e.total_volume) }} coins bankas{% endif %}
+          </div>
+        </div>
+        <div class="ec-badges">
+          <span class="badge badge-cat">{{ e.category }}</span>
+          <span class="badge badge-{{ e.status }}">
+            {% if e.status == 'open' %}🟢 Aktīvs
+            {% elif e.status == 'resolved' %}🏆 Atrisināts
+            {% else %}🔒 Slēgts{% endif %}
+          </span>
+        </div>
+      </div>
+
+      {% if e.options %}
+      <div class="ec-bars">
+        {% for o in e.options[:4] %}
+        {% set vol = o.volume or 0 %}
+        {% set pct = ((vol / total_vol * 100) | round(1)) if total_vol > 0 else 0 %}
+        <div class="bar-wrap">
+          <div class="bar-label">{{ o.label[:12] }}</div>
+          <div class="bar-track">
+            <div class="bar-fill bar-fill-{{ loop.index0 }}" style="width:{{ pct }}%"></div>
+          </div>
+          <div class="bar-pct">{{ pct }}%</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="ec-footer">
+        <span>{{ e.bet_count }} likmes</span>
+        {% if e.status == 'resolved' %}<span style="color:var(--gold)">✅ Uzvarēja: {{ e.outcome }}</span>{% endif %}
+      </div>
+    </a>
+    {% else %}
+    <div class="empty">Nav neviena notikuma vēl.</div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+function filterEvents(status, btn) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.event-card').forEach(c => {
+    c.style.display = (status === 'all' || c.dataset.status === status) ? 'block' : 'none';
+  });
+}
+
+function addOption() {
+  const list = document.getElementById('options-list');
+  const div = document.createElement('div');
+  div.className = 'option-inp';
+  div.innerHTML = `<input type="text" placeholder="Opcija ${list.children.length + 1}">`;
+  list.appendChild(div);
+}
+
+async function createEvent() {
+  const title   = document.getElementById('cf-title').value.trim();
+  const desc    = document.getElementById('cf-desc').value.trim();
+  const cat     = document.getElementById('cf-cat').value;
+  const closes  = document.getElementById('cf-closes').value;
+  const options = [...document.querySelectorAll('#options-list input')]
+                    .map(i => i.value.trim()).filter(Boolean);
+  const msg = document.getElementById('create-msg');
+  msg.style.display = 'block';
+  if (!title || options.length < 2) {
+    msg.className = 'msg-box msg-err';
+    msg.textContent = '❌ Nepieciešams nosaukums un vismaz 2 opcijas';
+    return;
+  }
+  const res = await fetch('/api/predictions/create', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ title, description: desc, category: cat, closes_at: closes, options })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    msg.className = 'msg-box msg-ok';
+    msg.textContent = '✅ Notikums izveidots!';
+    setTimeout(() => location.reload(), 1200);
+  } else {
+    msg.className = 'msg-box msg-err';
+    msg.textContent = '❌ ' + data.error;
+  }
+}
+</script>
+{% endblock %}

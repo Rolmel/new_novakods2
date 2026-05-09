@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Bumbox — Mana Krātuve{% endblock %}
+{% block content %}
+
+<h2>☁️ Bumbox — {{ session['user_name'] }}</h2>
+
+<p style="color: var(--text-muted); margin-bottom: 6px;">
+    Izmantots: <strong style="color: var(--accent-purple);">{{ used_mb }} MB</strong>
+    <span style="color: var(--text-dim);">/ 10 MB</span>
+</p>
+
+<div class="storage-bar-bg">
+    <div class="storage-bar-fill" style="width: {{ used_mb if used_mb < 10 else 10 }}%;"></div>
+</div>
+
+<div class="upload-zone">
+    <form action="/upload" method="POST" enctype="multipart/form-data">
+        <input type="file" name="file">
+        <button type="submit" class="btn">⬆ Augšupielādēt</button>
+    </form>
+</div>
+
+<h3>📁 Tavi faili</h3>
+
+<ul class="file-list">
+    {% for file in files %}
+    <li class="file-item">
+        <span>📄 {{ file['filename'] }}</span>
+        <div>
+            <a href="{{ url_for('static', filename='uploads/user_' ~ session['user_id'] ~ '/' ~ file['filename']) }}"
+               target="_blank" class="btn-secondary">👁️ Atvērt</a>
+            <a href="{{ url_for('download_file', file_id=file['id']) }}"
+               class="btn">⬇️ Lejuplādēt</a>
+            <form action="/delete/{{ file['id'] }}" method="POST"
+                  onsubmit="return confirm('Tiešām dzēst šo failu?');">
+                <button type="submit" class="btn-delete">🗑 Dzēst</button>
+            </form>
+        </div>
+    </li>
+    {% else %}
+    <li style="color: var(--text-muted); padding: 20px 0; text-align: center;">
+        Tu vēl neesi augšupielādējis nevienu failu.
+    </li>
+    {% endfor %}
+</ul>
+
+{% endblock %}

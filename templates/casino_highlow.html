@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}🔼 High / Low{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:460px; margin:0 auto; padding:20px; text-align:center; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); }
+.card-display {
+  background: linear-gradient(145deg, #111118, #1a1a2e);
+  border: 2px solid var(--gold);
+  border-radius: 20px;
+  padding: 40px 20px;
+  margin: 20px 0;
+}
+.big-card {
+  width: 100px; height: 140px;
+  background: white; border-radius: 12px;
+  margin: 0 auto 20px;
+  display: flex; flex-direction:column; align-items:center; justify-content:center;
+  font-size: 1.6rem; font-weight:700;
+  box-shadow: 0 8px 30px #00000088;
+}
+.big-card.red { color: #cc0000; }
+.streak-badge {
+  display:inline-block;
+  background: #f5c84222; border:1px solid var(--gold);
+  border-radius:20px; padding:4px 16px;
+  color:var(--gold); font-size:0.9rem;
+}
+.guess-btns { display:flex; gap:12px; justify-content:center; margin:16px 0; }
+.btn-high, .btn-low {
+  flex:1; padding:16px;
+  border:none; border-radius:12px;
+  font-family:'Rajdhani',sans-serif; font-size:1.2rem; font-weight:700;
+  cursor:pointer; transition: transform .1s;
+}
+.btn-high { background:linear-gradient(135deg,#00e676,#00b34a); color:#000; }
+.btn-low  { background:linear-gradient(135deg,#ff1744,#cc0022); color:#fff; }
+.btn-high:hover, .btn-low:hover { transform:translateY(-3px); }
+.btn-high:disabled, .btn-low:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+.btn-start {
+  width:100%; padding:14px;
+  background:linear-gradient(135deg,#f5c842,#e6a800);
+  border:none; border-radius:12px;
+  font-family:'Rajdhani',sans-serif; font-size:1.1rem; font-weight:700;
+  color:#000; cursor:pointer; margin-top:8px;
+}
+.bet-row { display:flex; align-items:center; justify-content:center; gap:10px; margin:12px 0; }
+.bet-row button { width:32px;height:32px; background:#1a1a2e; border:1px solid var(--gold); color:var(--gold); border-radius:8px; cursor:pointer; font-size:1rem; }
+.result-msg { padding:10px; border-radius:8px; margin:10px 0; font-weight:600; min-height:40px; }
+.win  { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.loss { background:#ff174422; border:1px solid var(--red); color:#ff8888; }
+.neutral { background:#1a1a24; border:1px solid #333; color:#888; }
+.balance-display { color:var(--gold); font-size:1.2rem; font-weight:600; margin:8px 0; }
+.back-link { color:var(--gold); text-decoration:none; }
+.mult-info { color:#aaa; font-size:0.85rem; margin:6px 0; }
+</style>
+
+<div class="page">
+  <a href="/casino" class="back-link">← Atpakaļ</a>
+  <h1>🔼 High / Low</h1>
+  <div class="balance-display">💰 <span id="balance">{{ "%.2f"|format(balance) }}</span></div>
+
+  <div class="card-display">
+    <div class="big-card" id="current-card"><span>?</span></div>
+    <div class="streak-badge">Sērija: <b id="streak">0</b> | Reizinātājs: x<b id="mult">1.0</b></div>
+    <div class="mult-info">Katrs pareizs atbilde: +0.5x reizinātājs</div>
+    <div class="result-msg neutral" id="result-msg">Sāc jaunu spēli!</div>
+    <div class="guess-btns">
+      <button class="btn-high" id="btn-high" onclick="guess('high')" disabled>🔼 Augstāk</button>
+      <button class="btn-low"  id="btn-low"  onclick="guess('low')"  disabled>🔽 Zemāk</button>
+    </div>
+    <div class="bet-row">
+      <button onclick="changeBet(-5)">−</button>
+      <span>Likme: <b id="bet-val">10</b></span>
+      <button onclick="changeBet(5)">+</button>
+    </div>
+    <button class="btn-start" onclick="startGame()">🎴 Sākt jaunu spēli</button>
+  </div>
+</div>
+
+<script>
+let bet = 10;
+let gameActive = false;
+
+function changeBet(d) {
+  bet = Math.max(1, Math.min(parseFloat(document.getElementById('balance').textContent)||9999, bet+d));
+  document.getElementById('bet-val').textContent = bet;
+}
+
+function renderCard(card) {
+  const el = document.getElementById('current-card');
+  const red = ['♥','♦'].includes(card.suit);
+  el.className = 'big-card' + (red ? ' red' : '');
+  el.innerHTML = `<span>${card.rank}</span><span>${card.suit}</span>`;
+}
+
+async function startGame() {
+  const res = await fetch('/api/casino/highlow/start', {method:'POST'});
+  const data = await res.json();
+  renderCard(data.card);
+  document.getElementById('streak').textContent = 0;
+  document.getElementById('mult').textContent = '1.0';
+  document.getElementById('result-msg').textContent = 'Augstāk vai zemāk par šo karti?';
+  document.getElementById('result-msg').className = 'result-msg neutral';
+  document.getElementById('btn-high').disabled = false;
+  document.getElementById('btn-low').disabled = false;
+  gameActive = true;
+}
+
+async function guess(dir) {
+  if (!gameActive) return;
+  const res = await fetch('/api/casino/highlow/guess', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({guess: dir, bet})
+  });
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+
+  renderCard(data.next_card);
+  document.getElementById('streak').textContent = data.streak;
+  const newMult = (1 + data.streak * 0.5).toFixed(1);
+  document.getElementById('mult').textContent = newMult;
+
+  if (data.balance !== null) {
+    document.getElementById('balance').textContent = data.balance.toFixed(2);
+  }
+
+  const msg = document.getElementById('result-msg');
+  if (data.correct === true) {
+    msg.className = 'result-msg win';
+    msg.textContent = `✅ Pareizi! +${data.net.toFixed(2)} coins. Turpini vai sāc no jauna!`;
+  } else if (data.correct === false) {
+    msg.className = 'result-msg loss';
+    msg.textContent = `❌ Nepareizi! Zaudēji ${bet} coins. Sērija pārtraukta.`;
+    document.getElementById('btn-high').disabled = true;
+    document.getElementById('btn-low').disabled = true;
+    gameActive = false;
+  } else {
+    msg.className = 'result-msg neutral';
+    msg.textContent = '➡️ Neizšķirts! Mēģini vēlreiz.';
+  }
+}
+</script>
+{% endblock %}

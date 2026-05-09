@@ -1,0 +1,440 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.display_name or owner.username }} — Profils{% endblock %}
+{% block content %}
+<style>
+/* ── Profile-specific styles ── */
+.profile-wrap {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 24px;
+    align-items: start;
+}
+@media (max-width: 700px) {
+    .profile-wrap { grid-template-columns: 1fr; }
+}
+
+/* ── Left card ── */
+.profile-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 32px 24px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+.profile-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--grad-glow);
+}
+
+.avatar-ring {
+    position: relative;
+    width: 110px;
+    height: 110px;
+    margin: 0 auto 20px;
+}
+.avatar-ring::before {
+    content: '';
+    position: absolute; inset: -3px;
+    border-radius: 50%;
+    background: var(--grad-glow);
+    z-index: 0;
+}
+.avatar-img {
+    position: relative;
+    width: 110px; height: 110px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--bg-card);
+    z-index: 1;
+}
+.avatar-edit-btn {
+    position: absolute; bottom: 2px; right: 2px;
+    width: 30px; height: 30px;
+    background: var(--accent-violet);
+    border: 2px solid var(--bg-card);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 0.75rem;
+    z-index: 2;
+    transition: var(--transition);
+}
+.avatar-edit-btn:hover { background: var(--accent-cyan); transform: scale(1.1); }
+
+.profile-display-name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.4rem; font-weight: 700;
+    background: var(--grad-glow);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 4px;
+}
+.profile-username {
+    color: var(--text-dim); font-size: 0.85rem; margin-bottom: 10px;
+}
+.profile-title-badge {
+    display: inline-block;
+    background: rgba(124,58,237,0.15);
+    border: 1px solid var(--border-bright);
+    border-radius: 20px;
+    padding: 3px 14px;
+    font-size: 0.8rem;
+    color: var(--accent-purple);
+    margin-bottom: 16px;
+}
+.profile-country {
+    color: var(--text-muted); font-size: 0.88rem; margin-bottom: 20px;
+}
+
+.profile-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border-bright), transparent);
+    margin: 20px 0;
+}
+
+.stat-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 0.88rem;
+}
+.stat-row:last-child { border-bottom: none; }
+.stat-label { color: var(--text-muted); }
+.stat-val { color: var(--text-main); font-weight: 600; }
+.stat-val.green { color: #4ade80; }
+.stat-val.red   { color: #f87171; }
+.stat-val.gold  { color: #f5c842; }
+
+/* ── Right column ── */
+.profile-right { display: flex; flex-direction: column; gap: 20px; }
+
+.panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    position: relative; overflow: hidden;
+}
+.panel::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-violet), transparent);
+    opacity: 0.6;
+}
+.panel-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1rem; font-weight: 600;
+    color: var(--text-main); margin-bottom: 18px;
+    display: flex; align-items: center; gap: 8px;
+}
+
+/* Edit form */
+.edit-form .field { margin-bottom: 16px; }
+.edit-form label {
+    display: block; font-size: 0.8rem; font-weight: 600;
+    color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 6px;
+}
+.edit-form input[type="text"],
+.edit-form select {
+    width: 100%; padding: 10px 14px;
+    background: var(--bg-main); color: var(--text-main);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-family: 'Inter', sans-serif; font-size: 0.92rem;
+    transition: var(--transition);
+}
+.edit-form select { cursor: pointer; }
+.edit-form input[type="text"]:focus,
+.edit-form select:focus {
+    outline: none;
+    border-color: var(--accent-violet);
+    box-shadow: 0 0 0 3px rgba(124,58,237,0.2);
+    background: var(--bg-card);
+}
+.save-row {
+    display: flex; gap: 10px; align-items: center;
+    margin-top: 6px;
+}
+.save-msg { font-size: 0.82rem; color: #4ade80; display: none; }
+
+/* Casino mini chart */
+.casino-bar-wrap { display: flex; flex-direction: column; gap: 8px; }
+.casino-bar-item { display: flex; flex-direction: column; gap: 4px; }
+.bar-info { display: flex; justify-content: space-between; font-size: 0.8rem; }
+.bar-label { color: var(--text-muted); }
+.bar-val   { color: var(--text-main); font-weight: 600; }
+.bar-track {
+    height: 6px; border-radius: 3px;
+    background: var(--bg-hover);
+    overflow: hidden;
+}
+.bar-fill {
+    height: 100%; border-radius: 3px;
+    transition: width 0.8s ease;
+}
+.bar-fill.green { background: linear-gradient(90deg, #4ade80, #06b6d4); }
+.bar-fill.red   { background: linear-gradient(90deg, #f87171, #ec4899); }
+.bar-fill.gold  { background: linear-gradient(90deg, #f5c842, #a855f7); }
+
+/* Recent games table */
+.mini-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.mini-table th {
+    color: var(--text-dim); padding: 6px 8px; text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.mini-table td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.mini-table tr:last-child td { border-bottom: none; }
+.badge-game {
+    display: inline-block; padding: 2px 8px;
+    border-radius: 10px; font-size: 0.75rem; font-weight: 600;
+    background: var(--bg-hover); border: 1px solid var(--border);
+    color: var(--accent-cyan);
+}
+
+/* Avatar upload modal */
+.modal-bg {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);
+    z-index: 100; align-items: center; justify-content: center;
+}
+.modal-bg.open { display: flex; }
+.modal-box {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius-lg);
+    padding: 32px; max-width: 400px; width: 90%;
+    text-align: center;
+}
+.modal-box h3 { margin-bottom: 16px; }
+.modal-box .drop-zone {
+    border: 2px dashed var(--border-bright);
+    border-radius: var(--radius);
+    padding: 32px 20px; margin: 16px 0;
+    color: var(--text-muted); cursor: pointer;
+    transition: var(--transition);
+}
+.modal-box .drop-zone:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+.modal-close {
+    background: none; border: none; color: var(--text-dim);
+    font-size: 1.2rem; cursor: pointer; float: right;
+    margin: -8px -8px 0 0;
+}
+.modal-close:hover { color: var(--text-main); }
+</style>
+
+<h2>👤 Profils</h2>
+
+<div class="profile-wrap">
+    <!-- ── LEFT: identity card ── -->
+    <div class="profile-card">
+        <div class="avatar-ring">
+            <img class="avatar-img" id="avatar-display"
+                 src="{{ profile.avatar_url or url_for('static', filename='images/default_avatar.png') }}"
+                 alt="Avatar"
+                 onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%231c1e3a%22/><text y=%22.9em%22 x=%2250%25%22 text-anchor=%22middle%22 font-size=%2250%22>👤</text></svg>'">
+            {% if is_own_profile %}
+            <div class="avatar-edit-btn" onclick="document.getElementById('avatar-modal').classList.add('open')" title="Mainīt avatāru">✏️</div>
+            {% endif %}
+        </div>
+
+        <div class="profile-display-name">{{ profile.display_name or owner.username }}</div>
+        <div class="profile-username">@{{ owner.username }}</div>
+
+        {% if profile.title %}
+        <div class="profile-title-badge">{{ profile.title }}</div>
+        {% endif %}
+
+        {% if profile.country %}
+        <div class="profile-country">📍 {{ profile.country }}</div>
+        {% endif %}
+
+        <div class="profile-divider"></div>
+
+        <!-- quick stats -->
+        <div class="stat-row">
+            <span class="stat-label">Kopā spēles</span>
+            <span class="stat-val gold">{{ stats.total_games }}</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Labākā uzvara</span>
+            <span class="stat-val green">+{{ "%.0f"|format(stats.best_win) }}</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Pikseļi PixelWar</span>
+            <span class="stat-val">{{ stats.pixel_count }}</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Faili Bumbox</span>
+            <span class="stat-val">{{ stats.file_count }}</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Ziņas</span>
+            <span class="stat-val">{{ stats.message_count }}</span>
+        </div>
+    </div>
+
+    <!-- ── RIGHT: details + edit ── -->
+    <div class="profile-right">
+
+        {% if is_own_profile %}
+        <!-- Edit panel -->
+        <div class="panel">
+            <div class="panel-title">⚙️ Rediģēt profilu</div>
+            <div class="edit-form">
+                <div class="field">
+                    <label>Parādāmais vārds</label>
+                    <input type="text" id="inp-display-name"
+                           value="{{ profile.display_name or '' }}"
+                           maxlength="40" placeholder="{{ owner.username }}">
+                </div>
+                <div class="field">
+                    <label>Nosaukums / Tituls</label>
+                    <input type="text" id="inp-title"
+                           value="{{ profile.title or '' }}"
+                           maxlength="40" placeholder="piem. 'Casino Meistars'">
+                </div>
+                <div class="field">
+                    <label>Valsts</label>
+                    <select id="inp-country">
+                        <option value="">— nav norādīta —</option>
+                        {% for code, name in countries %}
+                        <option value="{{ name }}" {{ 'selected' if profile.country == name else '' }}>{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="save-row">
+                    <button class="btn" onclick="saveProfile()">💾 Saglabāt</button>
+                    <span class="save-msg" id="save-msg">✅ Saglabāts!</span>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Casino stats panel -->
+        <div class="panel">
+            <div class="panel-title">🎰 Casino statistika</div>
+            <div class="casino-bar-wrap">
+                {% set max_val = [stats.total_won, stats.total_lost|abs, 1] | max %}
+                <div class="casino-bar-item">
+                    <div class="bar-info">
+                        <span class="bar-label">Kopā uzvarēts</span>
+                        <span class="bar-val green">+{{ "%.0f"|format(stats.total_won) }}</span>
+                    </div>
+                    <div class="bar-track">
+                        <div class="bar-fill green" style="width:{{ [stats.total_won / max_val * 100, 100]|min }}%"></div>
+                    </div>
+                </div>
+                <div class="casino-bar-item">
+                    <div class="bar-info">
+                        <span class="bar-label">Kopā zaudēts</span>
+                        <span class="bar-val red">{{ "%.0f"|format(stats.total_lost) }}</span>
+                    </div>
+                    <div class="bar-track">
+                        <div class="bar-fill red" style="width:{{ [(stats.total_lost|abs) / max_val * 100, 100]|min }}%"></div>
+                    </div>
+                </div>
+                <div class="casino-bar-item">
+                    <div class="bar-info">
+                        <span class="bar-label">Pašreizējā bilance</span>
+                        <span class="bar-val gold">{{ "%.0f"|format(stats.casino_balance) }}</span>
+                    </div>
+                    <div class="bar-track">
+                        <div class="bar-fill gold" style="width:{{ [stats.casino_balance / max_val * 100, 100]|min }}%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent casino games -->
+        {% if stats.recent_games %}
+        <div class="panel">
+            <div class="panel-title">📋 Pēdējās spēles</div>
+            <table class="mini-table">
+                <thead>
+                    <tr><th>Spēle</th><th>Likme</th><th>Rezultāts</th><th>Izmaksa</th></tr>
+                </thead>
+                <tbody>
+                {% for t in stats.recent_games %}
+                <tr>
+                    <td><span class="badge-game">{{ t.game }}</span></td>
+                    <td style="color:var(--text-muted)">{{ "%.0f"|format(t.bet) }}</td>
+                    <td style="font-size:0.8rem;color:var(--text-dim)">{{ t.result[:30] }}</td>
+                    <td class="{{ 'green' if t.winnings >= 0 else 'red' }}" style="font-weight:600">
+                        {{ "%+.0f"|format(t.winnings) }}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+
+{% if is_own_profile %}
+<!-- Avatar upload modal -->
+<div class="modal-bg" id="avatar-modal">
+    <div class="modal-box">
+        <button class="modal-close" onclick="document.getElementById('avatar-modal').classList.remove('open')">✕</button>
+        <h3>📷 Mainīt Avatāru</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem;">PNG, JPG vai GIF — maks. 2MB</p>
+        <div class="drop-zone" onclick="document.getElementById('avatar-file-inp').click()">
+            <div style="font-size:2rem;margin-bottom:8px">📁</div>
+            Noklikšķini lai izvēlētos failu
+        </div>
+        <input type="file" id="avatar-file-inp" accept="image/png,image/jpeg,image/gif"
+               style="display:none" onchange="uploadAvatar(this)">
+        <div id="avatar-upload-msg" style="font-size:0.85rem;margin-top:8px;color:var(--text-muted)"></div>
+    </div>
+</div>
+
+<script>
+async function saveProfile() {
+    const res = await fetch('/api/profile/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            display_name: document.getElementById('inp-display-name').value.trim(),
+            title:        document.getElementById('inp-title').value.trim(),
+            country:      document.getElementById('inp-country').value
+        })
+    });
+    const data = await res.json();
+    if (data.ok) {
+        const msg = document.getElementById('save-msg');
+        msg.style.display = 'inline';
+        setTimeout(() => msg.style.display = 'none', 2500);
+        // Update visible name
+        document.querySelector('.profile-display-name').textContent =
+            data.display_name || '{{ owner.username }}';
+    }
+}
+
+async function uploadAvatar(input) {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+        document.getElementById('avatar-upload-msg').textContent = '❌ Fails pārāk liels (maks 2MB)';
+        return;
+    }
+    const fd = new FormData();
+    fd.append('avatar', file);
+    document.getElementById('avatar-upload-msg').textContent = '⏳ Augšupielādē...';
+    const res  = await fetch('/api/profile/avatar', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+        document.getElementById('avatar-display').src = data.url + '?t=' + Date.now();
+        document.getElementById('avatar-modal').classList.remove('open');
+        document.getElementById('avatar-upload-msg').textContent = '';
+    } else {
+        document.getElementById('avatar-upload-msg').textContent = '❌ ' + data.error;
+    }
+}
+</script>
+{% endif %}
+
+{% endblock %}

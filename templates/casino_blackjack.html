@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}🃏 Blackjack{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; --felt:#0d3321; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:600px; margin:0 auto; padding:20px; text-align:center; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); }
+.table {
+  background: radial-gradient(ellipse, #0d4a2a, #062010);
+  border: 3px solid var(--gold);
+  border-radius: 200px 200px 0 0 / 80px 80px 0 0;
+  padding: 30px 20px 40px;
+  margin: 16px 0;
+  box-shadow: 0 0 40px #00000088;
+}
+.hand-area { min-height: 100px; margin: 10px 0; }
+.hand-label { color:#aaa; font-size:0.85rem; margin-bottom:6px; text-transform:uppercase; letter-spacing:1px; }
+.hand-total { display:inline-block; background:#00000066; border:1px solid var(--gold); border-radius:20px; padding:2px 12px; font-size:0.9rem; color:var(--gold); margin:4px; }
+.cards { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin:8px 0; }
+.card {
+  width: 52px; height: 72px;
+  background: white;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.95rem; font-weight: 700;
+  color: #000;
+  box-shadow: 2px 2px 8px #00000066;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.card.red { color: #cc0000; }
+.card.back { background: linear-gradient(135deg, #1a1a8a, #3333cc); color: transparent; }
+.card-back-pattern { color: #6666ff; font-size: 1.4rem; }
+.divider { border: none; border-top: 1px dashed #ffffff22; margin: 16px 0; }
+.controls { padding: 20px; background:#111118; border-radius:0 0 16px 16px; border:1px solid #2a2a3a; border-top:none; }
+.bet-row { display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:16px; }
+.bet-row button { width:34px; height:34px; background:#1a1a2e; border:1px solid var(--gold); color:var(--gold); border-radius:8px; font-size:1.1rem; cursor:pointer; }
+.action-btns { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+.btn {
+  padding: 12px 28px;
+  border: none; border-radius: 10px;
+  font-family:'Rajdhani',sans-serif; font-size:1rem; font-weight:700;
+  cursor: pointer; transition: transform .1s, opacity .2s;
+}
+.btn:hover { transform:translateY(-2px); }
+.btn:disabled { opacity:0.4; cursor:not-allowed; transform:none; }
+.btn-deal { background:linear-gradient(135deg,#f5c842,#e6a800); color:#000; }
+.btn-hit { background:linear-gradient(135deg,#00e676,#00b34a); color:#000; }
+.btn-stand { background:linear-gradient(135deg,#ff6b35,#cc4400); color:#fff; }
+.result-msg { margin:12px 0; padding:12px; border-radius:10px; font-size:1.1rem; font-weight:600; }
+.result-win { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.result-loss { background:#ff174422; border:1px solid var(--red); color:#ff8888; }
+.result-push { background:#f5c84222; border:1px solid var(--gold); color:var(--gold); }
+.result-neutral { background:#1a1a24; border:1px solid #333; color:#888; }
+.balance-display { color:var(--gold); font-size:1.2rem; font-weight:600; }
+.back-link { display:inline-block; margin:10px 0; color:var(--gold); text-decoration:none; }
+</style>
+
+<div class="page">
+  <a href="/casino" class="back-link">← Atpakaļ</a>
+  <h1>🃏 Blackjack</h1>
+  <div class="balance-display">💰 <span id="balance">{{ "%.2f"|format(balance) }}</span> coins</div>
+
+  <div class="table">
+    <div class="hand-label">Dīleris <span class="hand-total" id="dealer-total">?</span></div>
+    <div class="cards" id="dealer-cards"></div>
+    <hr class="divider">
+    <div class="hand-label">Tu <span class="hand-total" id="player-total">0</span></div>
+    <div class="cards" id="player-cards"></div>
+  </div>
+
+  <div class="controls">
+    <div class="result-msg result-neutral" id="result-msg">Izvēlies likmi un sāc spēli!</div>
+    <div class="bet-row">
+      <button onclick="changeBet(-5)">−</button>
+      <span>Likme: <b id="bet-val">10</b> coins</span>
+      <button onclick="changeBet(5)">+</button>
+    </div>
+    <div class="action-btns">
+      <button class="btn btn-deal" id="btn-deal" onclick="deal()">🃏 Dalīt</button>
+      <button class="btn btn-hit" id="btn-hit" onclick="hit()" disabled>➕ Hit</button>
+      <button class="btn btn-stand" id="btn-stand" onclick="stand()" disabled>✋ Stand</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let bet = 10;
+let gameActive = false;
+
+function changeBet(d) {
+  if (gameActive) return;
+  bet = Math.max(1, Math.min(parseFloat(document.getElementById('balance').textContent), bet+d));
+  document.getElementById('bet-val').textContent = bet;
+}
+
+function renderCard(card) {
+  const redSuits = ['♥','♦'];
+  const isRed = redSuits.includes(card.suit);
+  const div = document.createElement('div');
+  div.className = 'card' + (isRed ? ' red' : '');
+  div.innerHTML = `<span>${card.rank}</span><span>${card.suit}</span>`;
+  return div;
+}
+
+function renderBackCard() {
+  const div = document.createElement('div');
+  div.className = 'card back';
+  div.innerHTML = `<span class="card-back-pattern">🂠</span>`;
+  return div;
+}
+
+function setButtons(inGame) {
+  gameActive = inGame;
+  document.getElementById('btn-deal').disabled = inGame;
+  document.getElementById('btn-hit').disabled = !inGame;
+  document.getElementById('btn-stand').disabled = !inGame;
+}
+
+async function deal() {
+  const res = await fetch('/api/casino/blackjack/deal', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bet})
+  });
+  const data = await res.json();
+  if (data.error) { showMsg(data.error, 'neutral'); return; }
+
+  document.getElementById('balance').textContent = data.balance.toFixed(2);
+
+  const pc = document.getElementById('player-cards');
+  const dc = document.getElementById('dealer-cards');
+  pc.innerHTML = ''; dc.innerHTML = '';
+
+  data.player.forEach(c => pc.appendChild(renderCard(c)));
+  dc.appendChild(renderCard(data.dealer_visible[0]));
+  dc.appendChild(renderBackCard());
+
+  document.getElementById('player-total').textContent = data.player_total;
+  document.getElementById('dealer-total').textContent = '?';
+
+  if (data.blackjack) {
+    showMsg('🎉 BLACKJACK! Automātiska uzvara!', 'win');
+    setButtons(false);
+    stand();
+  } else {
+    showMsg('Hit vai Stand?', 'neutral');
+    setButtons(true);
+  }
+}
+
+async function hit() {
+  const res = await fetch('/api/casino/blackjack/hit', {method:'POST'});
+  const data = await res.json();
+
+  const pc = document.getElementById('player-cards');
+  pc.innerHTML = '';
+  data.player.forEach(c => pc.appendChild(renderCard(c)));
+  document.getElementById('player-total').textContent = data.player_total;
+
+  if (data.bust) {
+    showMsg('💥 Bust! Pārspēji 21!', 'loss');
+    setButtons(false);
+    await resolveGame(false);
+  }
+}
+
+async function stand() {
+  const res = await fetch('/api/casino/blackjack/stand', {method:'POST'});
+  const data = await res.json();
+  if (data.error) return;
+
+  const pc = document.getElementById('player-cards');
+  const dc = document.getElementById('dealer-cards');
+  pc.innerHTML = ''; dc.innerHTML = '';
+  data.player.forEach(c => pc.appendChild(renderCard(c)));
+  data.dealer.forEach(c => dc.appendChild(renderCard(c)));
+
+  document.getElementById('player-total').textContent = data.player_total;
+  document.getElementById('dealer-total').textContent = data.dealer_total;
+  document.getElementById('balance').textContent = data.balance.toFixed(2);
+
+  const cls = data.net > 0 ? 'win' : data.net === 0 ? 'push' : 'loss';
+  showMsg(`${data.result} ${data.net >= 0 ? '+' : ''}${data.net.toFixed(2)} coins`, cls);
+  setButtons(false);
+}
+
+async function resolveGame() {
+  await stand();
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('result-msg');
+  el.textContent = text;
+  el.className = `result-msg result-${type}`;
+}
+</script>
+{% endblock %}

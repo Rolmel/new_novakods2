@@ -1,0 +1,639 @@
+{% extends "base.html" %}
+{% block title %}♠️ Texas Hold'em Live{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600;700&display=swap');
+:root {
+  --gold: #f5c842; --dark: #0a0a0f; --green: #00e676; --red: #ff1744;
+  --blue: #2196f3; --felt1: #2d6a4f; --felt2: #1b4332; --felt3: #081c15;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--dark); color: #e0e0e0; font-family: 'Rajdhani', sans-serif; margin: 0; }
+
+.wrap { max-width: 940px; margin: 0 auto; padding: 14px 16px; }
+.back-link { color: var(--gold); text-decoration: none; font-size: 0.88rem; opacity: .8; }
+.back-link:hover { opacity: 1; }
+h1 { font-family: 'Cinzel Decorative', serif; color: var(--gold); text-align: center;
+     margin: 8px 0 4px; font-size: clamp(1.4rem, 4vw, 2rem);
+     text-shadow: 0 0 30px #f5c84244; }
+
+/* ══════════════════ LOBBY ══════════════════ */
+.lob-bal { text-align: center; color: var(--gold); font-size: 1.1rem; margin-bottom: 18px; font-weight: 600; }
+.tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.tc {
+  background: #0e0e18; border: 1px solid #2a2a3a; border-radius: 14px;
+  padding: 18px; text-align: center; transition: border-color .2s;
+}
+.tc:hover { border-color: #3a3a5a; }
+.tc h3 { color: var(--gold); margin: 0 0 6px; font-size: 1rem; letter-spacing: .5px; }
+.tc-info { color: #555; font-size: 0.8rem; margin-bottom: 12px; }
+.tc-seats { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.lseat {
+  width: 44px; height: 44px; border-radius: 50%; border: 2px solid #222;
+  background: #0a0a14; cursor: pointer; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; transition: all .15s;
+  font-size: 0.58rem; line-height: 1.2; color: #555;
+}
+.lseat.occ  { border-color: var(--gold); color: var(--gold); cursor: default; }
+.lseat.sel  { border-color: var(--green); background: #00e67612; color: var(--green); }
+.lseat:not(.occ):hover { border-color: var(--green); color: var(--green); }
+.lseat-plus { font-size: 1.3rem; color: #2a2a3a; }
+.jbtn {
+  background: linear-gradient(135deg, var(--gold), #c89800); border: none;
+  padding: 9px 24px; border-radius: 10px; font-family: 'Rajdhani', sans-serif;
+  font-size: 1rem; font-weight: 700; color: #000; cursor: pointer; transition: transform .1s;
+}
+.jbtn:hover:not(:disabled) { transform: translateY(-2px); }
+.jbtn:disabled { opacity: .3; cursor: not-allowed; }
+.lob-empty { color: #333; text-align: center; padding: 30px; }
+
+/* ══════════════════ TABLE VIEW ══════════════════ */
+#tv { display: none; }
+.tv-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px;
+}
+.tv-title { font-family: 'Cinzel Decorative', serif; color: var(--gold); font-size: 0.95rem; }
+.bal-chip {
+  background: #111120; border: 1px solid var(--gold); border-radius: 20px;
+  padding: 4px 14px; color: var(--gold); font-size: 0.88rem; font-weight: 700;
+}
+
+/* ══════════════════ FELT ══════════════════ */
+.felt-outer {
+  position: relative; width: 100%;
+  height: clamp(270px, 48vw, 460px);
+  margin-bottom: 10px;
+}
+.felt {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 45%, var(--felt1) 0%, var(--felt2) 60%, var(--felt3) 100%);
+  border: 5px solid #9a7010;
+  border-radius: 50%;
+  box-shadow: 0 0 50px rgba(245,200,66,.12), inset 0 0 60px rgba(0,0,0,.5);
+  overflow: hidden;
+}
+/* subtle felt texture */
+.felt::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: url("data:image/svg+xml,%3Csvg width='4' height='4' viewBox='0 0 4 4' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 3h1v1H1V3zm2-2h1v1H3V1z' fill='%23ffffff' fill-opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 1;
+}
+.f-stage {
+  position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
+  color: rgba(255,255,255,.3); font-size: 0.68rem; letter-spacing: 2px;
+  text-transform: uppercase; z-index: 6; white-space: nowrap;
+}
+.f-pot {
+  position: absolute; bottom: 9%; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.65); border: 1px solid var(--gold);
+  border-radius: 20px; padding: 3px 14px; color: var(--gold);
+  font-size: 0.82rem; font-weight: 700; z-index: 6; white-space: nowrap;
+}
+.f-community {
+  position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+  display: flex; gap: 5px; z-index: 6; align-items: center;
+}
+
+/* Community card */
+.cc {
+  width: clamp(30px, 5.2vw, 44px); height: clamp(42px, 7.3vw, 62px);
+  border-radius: 4px; background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: clamp(0.62rem, 1.1vw, 0.88rem); font-weight: 700;
+  color: #111; flex-direction: column; line-height: 1.1;
+  box-shadow: 2px 3px 10px rgba(0,0,0,.65); transition: transform .2s;
+}
+.cc.rd { color: #cc0000; }
+.cc.ph { background: rgba(255,255,255,.06); border: 1px dashed rgba(255,255,255,.12); box-shadow: none; }
+.cc:not(.ph):hover { transform: translateY(-3px); }
+
+/* ══════════════════ SEAT SPOTS ══════════════════ */
+.f-seat {
+  position: absolute; transform: translate(-50%, -50%);
+  z-index: 15; display: flex; flex-direction: column; align-items: center;
+  pointer-events: none;
+}
+.f-avatar {
+  width: clamp(40px, 6.5vw, 54px); height: clamp(40px, 6.5vw, 54px);
+  border-radius: 50%; background: #0a0a14; border: 2px solid #262640;
+  display: flex; align-items: center; justify-content: center;
+  font-size: clamp(1rem, 1.6vw, 1.3rem); position: relative;
+  transition: border-color .3s, box-shadow .3s;
+}
+.f-avatar.active {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px #f5c84240, 0 0 20px #f5c84260;
+  animation: gpulse 1.3s ease infinite;
+}
+@keyframes gpulse {
+  0%, 100% { box-shadow: 0 0 0 2px #f5c84230, 0 0 14px #f5c84250; }
+  50%       { box-shadow: 0 0 0 4px #f5c84250, 0 0 28px #f5c84270; }
+}
+.f-avatar.mine   { border-color: var(--blue); }
+.f-avatar.folded { opacity: .3; filter: grayscale(1); }
+.f-avatar.allin  { border-color: #ff9800; }
+
+.f-d-btn {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--gold); color: #000;
+  font-size: 0.55rem; font-weight: 900; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.5);
+}
+.f-sb-btn, .f-bb-btn {
+  position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%);
+  border-radius: 8px; padding: 1px 5px; font-size: 0.48rem; font-weight: 700;
+}
+.f-sb-btn { background: #2196f388; color: #90caf9; }
+.f-bb-btn { background: #ff174488; color: #ff8a80; }
+
+.f-label { text-align: center; margin-top: 4px; max-width: 74px; }
+.f-pname { font-size: clamp(0.58rem, 0.9vw, 0.72rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 74px; }
+.f-pbal  { font-size: clamp(0.54rem, 0.8vw, 0.65rem); color: var(--gold); }
+.f-pbet  { font-size: clamp(0.5rem, 0.75vw, 0.62rem); color: var(--green); }
+.f-pstatus { font-size: 0.54rem; font-weight: 700; }
+.f-minis { display: flex; gap: 2px; margin-top: 3px; justify-content: center; }
+.mc {
+  width: clamp(15px, 2.8vw, 22px); height: clamp(21px, 3.9vw, 31px);
+  border-radius: 3px; background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: clamp(0.42rem, 0.75vw, 0.58rem); font-weight: 700; color: #111;
+  flex-direction: column; line-height: 1;
+}
+.mc.bk { background: linear-gradient(135deg, #1a1a8a, #4040bb); }
+.mc.rd { color: #cc0000; }
+
+/* ══════════════════ MY HAND ══════════════════ */
+.myhand {
+  background: #0e0e18; border: 1px solid #2a2a3a; border-radius: 12px;
+  padding: 12px 16px; text-align: center; margin-bottom: 10px;
+  display: none; transition: all .3s;
+}
+.myhand.vis { display: block; }
+.myhand-lbl { color: #555; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px; }
+.myhand-cards { display: flex; gap: 12px; justify-content: center; }
+.bigcard {
+  width: 58px; height: 82px; border-radius: 8px; background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; font-weight: 700; color: #111;
+  flex-direction: column; line-height: 1.2;
+  box-shadow: 3px 4px 14px rgba(0,0,0,.6);
+  transition: transform .2s;
+}
+.bigcard:hover { transform: translateY(-4px); }
+.bigcard.rd { color: #cc0000; }
+.bigcard.bk { background: linear-gradient(135deg, #1a1a8a, #4040bb); }
+
+/* ══════════════════ TURN BAR ══════════════════ */
+.tbar {
+  text-align: center; padding: 8px 16px; border-radius: 10px;
+  font-weight: 700; margin-bottom: 10px; font-size: 0.9rem; display: none;
+}
+.tbar.me { display: block; background: #f5c84214; border: 1px solid #f5c84260; color: var(--gold); }
+.tbar.ot { display: block; background: #111120; border: 1px solid #222; color: #555; }
+
+/* ══════════════════ WINNER BANNER ══════════════════ */
+.wbanner {
+  background: linear-gradient(135deg, #1a1a0a, #221c05);
+  border: 2px solid var(--gold); border-radius: 12px;
+  padding: 12px 18px; text-align: center; margin-bottom: 10px;
+  display: none; animation: fadeIn .4s ease;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.wbanner.vis { display: block; }
+.wbanner h3 { color: var(--gold); font-family: 'Cinzel Decorative', serif; margin: 0 0 6px; font-size: 1rem; }
+.wbanner p { color: #ccc; font-size: 0.85rem; margin: 0; line-height: 1.6; }
+
+/* ══════════════════ ACTION ROW ══════════════════ */
+.arow { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
+.abtn {
+  padding: 11px 18px; border: none; border-radius: 10px;
+  font-family: 'Rajdhani', sans-serif; font-size: 0.95rem; font-weight: 700;
+  cursor: pointer; transition: transform .12s, opacity .2s;
+  min-width: 78px;
+}
+.abtn:hover:not(:disabled) { transform: translateY(-2px); }
+.abtn:active:not(:disabled) { transform: scale(.96); }
+.abtn:disabled { opacity: .28; cursor: not-allowed; transform: none; }
+.abtn.fold  { background: #c0102a; color: #fff; }
+.abtn.check { background: #388e3c; color: #fff; }
+.abtn.call  { background: #1565c0; color: #fff; }
+.abtn.raise { background: #e65100; color: #fff; }
+.abtn.leave { background: #111120; border: 1px solid #2a2a3a; color: #555; font-size: 0.82rem; min-width: auto; }
+.rwrap { display: flex; gap: 6px; align-items: center; }
+.rinput {
+  width: 78px; padding: 8px; border-radius: 8px;
+  border: 1px solid #2a2a4a; background: #0a0a18; color: #fff;
+  font-family: 'Rajdhani', sans-serif; font-size: 0.88rem;
+  transition: border-color .2s;
+}
+.rinput:focus { outline: none; border-color: var(--gold); }
+.rinput:disabled { opacity: .3; }
+
+/* ══════════════════ EVENT LOG ══════════════════ */
+.elog {
+  background: #070710; border: 1px solid #161624; border-radius: 10px;
+  padding: 8px 12px; max-height: 82px; overflow-y: auto;
+  font-size: 0.78rem; color: #555;
+  scrollbar-width: thin; scrollbar-color: #2a2a3a transparent;
+}
+.elog .ev { padding: 2px 0; border-bottom: 1px solid #0e0e18; }
+.elog .ev:last-child { border: none; }
+.elog .ev.highlight { color: var(--gold); }
+</style>
+
+<div class="wrap">
+  <a href="/casino" class="back-link">← Atpakaļ uz Kazino</a>
+
+  <!-- ══════════ LOBBY ══════════ -->
+  <div id="lobby">
+    <h1>♠️ Texas Hold'em Live</h1>
+    <div class="lob-bal">💰 {{ "%.2f"|format(balance) }} coins</div>
+    <div class="tgrid" id="tgrid">
+      <div class="lob-empty">Savienojas ar serveri...</div>
+    </div>
+  </div>
+
+  <!-- ══════════ TABLE VIEW ══════════ -->
+  <div id="tv">
+    <div class="tv-header">
+      <span class="tv-title" id="tname">♠️ Galds</span>
+      <span class="bal-chip">💰 <span id="tbal">{{ "%.2f"|format(balance) }}</span></span>
+    </div>
+
+    <!-- Felt -->
+    <div class="felt-outer">
+      <div class="felt" id="felt">
+        <div class="f-stage" id="f-stage"></div>
+        <div class="f-community" id="f-com"></div>
+        <div class="f-pot">POT: <span id="f-pot">0</span></div>
+      </div>
+    </div>
+
+    <!-- My hole cards -->
+    <div class="myhand" id="myhand">
+      <div class="myhand-lbl">✋ Tavas Kartes</div>
+      <div class="myhand-cards" id="myhand-cards"></div>
+    </div>
+
+    <!-- Turn indicator -->
+    <div class="tbar" id="tbar"></div>
+
+    <!-- Winner banner -->
+    <div class="wbanner" id="wbanner">
+      <h3>🏆 Roka beigusies!</h3>
+      <p id="wdetail"></p>
+    </div>
+
+    <!-- Actions -->
+    <div class="arow">
+      <button class="abtn fold"  id="btn-fold"  disabled>❌ Fold</button>
+      <button class="abtn check" id="btn-check" disabled>✋ Check</button>
+      <button class="abtn call"  id="btn-call"  disabled>📞 Call</button>
+      <div class="rwrap">
+        <input class="rinput" id="raise-amt" type="number" placeholder="Summa" min="0" disabled>
+        <button class="abtn raise" id="btn-raise" disabled>💰 Raise</button>
+      </div>
+      <button class="abtn leave" id="btn-leave">🚪 Pamest</button>
+    </div>
+
+    <!-- Event log -->
+    <div class="elog" id="elog"></div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<script>
+/* ══════════════════════════════════════════════
+   CRITICAL BUG FIX: Python dict keys with integer user_ids become STRING keys
+   in JSON (e.g. {1: {...}} → {"1": {...}}). Always use String(ME) to look up
+   the current player in state.players.
+   ══════════════════════════════════════════════ */
+const ME   = {{ user_id }};       // integer — use for to_act / seats comparisons
+const ME_S = String({{ user_id }}); // string  — use for state.players[ME_S] lookups
+
+const STAGE_LABELS = {
+  waiting: 'Gaida spēlētājus', preflop: 'Pre-Flop',
+  flop: 'Flop', turn: 'Turn', river: 'River', showdown: 'Showdown'
+};
+
+// Seat positions as percentages [left, top] of the felt container
+// Calculated so all seats stay inside the ellipse
+const SEAT_POS = [
+  { l: '50%', t: '86%' },  // 0 — bottom center
+  { l: '82%', t: '70%' },  // 1 — bottom right
+  { l: '85%', t: '28%' },  // 2 — top right
+  { l: '50%', t: '13%' },  // 3 — top center
+  { l: '15%', t: '28%' },  // 4 — top left
+  { l: '18%', t: '70%' },  // 5 — bottom left
+];
+
+let tableId = null;
+let gs      = null;   // current game state
+let selSeat = -1;
+
+const socket = io({ transports: ['websocket', 'polling'] });
+
+// ── Socket wiring ──
+socket.on('connect', () => {
+  socket.emit('holdem_get_tables');
+  if (tableId) socket.emit('holdem_watch_table', { table_id: tableId });
+});
+socket.on('holdem_tables_list',  renderLobby);
+socket.on('holdem_joined',       d => { tableId = d.table_id; showTable(); socket.emit('holdem_watch_table', { table_id: tableId }); });
+socket.on('holdem_left',         showLobby);
+socket.on('holdem_state',        s => { gs = s; renderTable(s); });
+socket.on('holdem_private_cards', d => {
+  if (gs && gs.players[ME_S]) {
+    gs.players[ME_S].cards = d.cards;
+    renderMyCards(d.cards);
+    document.getElementById('myhand').classList.add('vis');
+  }
+});
+socket.on('holdem_event', d => {
+  const el  = document.getElementById('elog');
+  const div = document.createElement('div');
+  div.className = 'ev' + (d.msg.includes('uzvar') ? ' highlight' : '');
+  div.textContent = d.msg;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+});
+socket.on('holdem_error', d => alert(d.msg));
+
+// Auto-refresh lobby every 5 s
+setInterval(() => {
+  if (document.getElementById('lobby').style.display !== 'none') {
+    socket.emit('holdem_get_tables');
+  }
+}, 5000);
+
+// ── Screen transitions ──
+function showLobby() {
+  tableId = null; gs = null; selSeat = -1;
+  document.getElementById('tv').style.display    = 'none';
+  document.getElementById('lobby').style.display = 'block';
+  document.getElementById('elog').innerHTML      = '';
+  socket.emit('holdem_get_tables');
+}
+function showTable() {
+  document.getElementById('lobby').style.display = 'none';
+  document.getElementById('tv').style.display    = 'block';
+}
+
+// ─────────────────────── LOBBY ───────────────────────
+function renderLobby(tables) {
+  const g = document.getElementById('tgrid');
+  if (!tables || !tables.length) {
+    g.innerHTML = '<div class="lob-empty">Nav pieejamo galdu.</div>';
+    return;
+  }
+  g.innerHTML = tables.map(t => `
+    <div class="tc">
+      <h3>${t.name}</h3>
+      <div class="tc-info">
+        Blinds: ${t.blinds} &nbsp;·&nbsp;
+        ${t.stage === 'waiting' ? '⏳ Gaida spēlētājus' : '🎮 Spēle notiek'}
+      </div>
+      <div class="tc-seats" id="ts${t.id}">
+        ${t.seats.map((s, i) => `
+          <div class="lseat ${s.occupied ? 'occ' : ''}"
+               id="ls${t.id}_${i}"
+               onclick="selSt(${t.id}, ${i})"
+               title="${s.occupied ? (s.player_name + ' — ' + Math.round(s.balance || 0) + ' coins') : 'Brīva vieta ' + (i + 1)}">
+            ${s.occupied
+              ? `<span>${(s.player_name || '?').substring(0, 5)}</span><span style="font-size:.5rem;color:#888">${Math.round(s.balance || 0)}</span>`
+              : '<span class="lseat-plus">+</span>'}
+          </div>`).join('')}
+      </div>
+      <button class="jbtn" id="jb${t.id}" onclick="joinT(${t.id})" disabled>
+        Pievienoties
+      </button>
+    </div>
+  `).join('');
+}
+
+function selSt(tid, idx) {
+  document.querySelectorAll(`#ts${tid} .lseat`).forEach(e => e.classList.remove('sel'));
+  const el = document.getElementById(`ls${tid}_${idx}`);
+  if (el && !el.classList.contains('occ')) {
+    el.classList.add('sel');
+    selSeat = idx;
+    document.getElementById(`jb${tid}`).disabled = false;
+  }
+}
+function joinT(tid) {
+  if (selSeat === -1) { alert('Izvēlies brīvu vietu!'); return; }
+  socket.emit('holdem_join_table', { table_id: tid, seat: selSeat });
+}
+
+// ─────────────────────── TABLE ───────────────────────
+function renderTable(s) {
+  if (!s) return;
+
+  document.getElementById('tname').textContent = '♠️ ' + s.name;
+  document.getElementById('f-pot').textContent = s.pot.toFixed(0);
+  document.getElementById('f-stage').textContent = STAGE_LABELS[s.stage] || s.stage;
+
+  // Community cards (always show 5 placeholders)
+  const comEl = document.getElementById('f-com');
+  comEl.innerHTML = '';
+  for (let i = 0; i < 5; i++) {
+    const c = s.community && s.community[i];
+    if (c) {
+      const red = ['♥', '♦'].includes(c.suit);
+      comEl.innerHTML += `<div class="cc${red ? ' rd' : ''}">${c.rank}<br>${c.suit}</div>`;
+    } else {
+      comEl.innerHTML += `<div class="cc ph"></div>`;
+    }
+  }
+
+  // Seat spots
+  const felt = document.getElementById('felt');
+  felt.querySelectorAll('.f-seat').forEach(e => e.remove());
+
+  (s.seats || []).forEach((uid, idx) => {
+    const pos  = SEAT_POS[idx];
+    const spot = document.createElement('div');
+    spot.className = 'f-seat';
+    spot.style.left = pos.l;
+    spot.style.top  = pos.t;
+
+    if (uid !== null && s.players[String(uid)]) {
+      const p        = s.players[String(uid)];
+      const isMe     = uid === ME;
+      const isDealer = s.dealer_seat === idx;
+      const isSB     = s.sb_seat === idx;
+      const isBB     = s.bb_seat === idx;
+      const isTurn   = s.current_seat === idx && Array.isArray(s.to_act) && s.to_act[0] === uid;
+
+      let avCls = 'f-avatar';
+      if (isTurn)   avCls += ' active';
+      if (isMe)     avCls += ' mine';
+      if (p.folded) avCls += ' folded';
+      if (p.all_in && !p.folded) avCls += ' allin';
+
+      // Mini card faces in seat (show backs for opponents, real cards for self)
+      let minis = '';
+      if (p.cards && !p.folded) {
+        p.cards.forEach(c => {
+          if (c === 'back') {
+            minis += `<div class="mc bk"></div>`;
+          } else {
+            const red = ['♥', '♦'].includes(c.suit);
+            minis += `<div class="mc${red ? ' rd' : ''}">${c.rank}<br>${c.suit}</div>`;
+          }
+        });
+      }
+
+      let statusHtml = '';
+      if (p.folded)  statusHtml = `<div class="f-pstatus" style="color:#ff4444">FOLD</div>`;
+      else if (p.all_in) statusHtml = `<div class="f-pstatus" style="color:#ff9800">ALL IN</div>`;
+
+      let positionBadge = '';
+      if (isDealer) positionBadge += `<div class="f-d-btn">D</div>`;
+      if (isSB && !isDealer) positionBadge += `<div class="f-sb-btn">SB</div>`;
+      if (isBB && !isDealer) positionBadge += `<div class="f-bb-btn">BB</div>`;
+
+      spot.innerHTML = `
+        <div class="${avCls}">
+          ${positionBadge}
+          <span>${isMe ? '⭐' : '👤'}</span>
+        </div>
+        <div class="f-label">
+          <div class="f-pname">${p.name}</div>
+          <div class="f-pbal">${p.balance.toFixed(0)}c</div>
+          ${p.round_bet > 0 ? `<div class="f-pbet">↑${p.round_bet.toFixed(0)}</div>` : ''}
+          ${statusHtml}
+          <div class="f-minis">${minis}</div>
+        </div>`;
+    } else {
+      // Empty seat
+      spot.innerHTML = `
+        <div class="f-avatar" style="opacity:.15; border-style:dashed">
+          <span style="color:#1a1a2e; font-size:1.3rem">+</span>
+        </div>
+        <div class="f-label">
+          <div class="f-pname" style="color:#1a1a2e">Brīva</div>
+        </div>`;
+    }
+    felt.appendChild(spot);
+  });
+
+  // ── My player data ──
+  const me = s.players[ME_S];
+
+  // My hand section
+  if (me && me.cards && me.cards.length && !me.folded) {
+    renderMyCards(me.cards);
+    document.getElementById('myhand').classList.add('vis');
+  } else {
+    document.getElementById('myhand').classList.remove('vis');
+  }
+
+  // Balance display
+  if (me) document.getElementById('tbal').textContent = me.balance.toFixed(2);
+
+  // ── Turn bar ──
+  renderTurnBar(s, me);
+
+  // ── Action buttons ──
+  renderActions(s, me);
+
+  // ── Winner banner ──
+  renderWinners(s);
+}
+
+function renderMyCards(cards) {
+  document.getElementById('myhand-cards').innerHTML = cards.map(c => {
+    if (c === 'back') return `<div class="bigcard bk"></div>`;
+    const red = ['♥', '♦'].includes(c.suit);
+    return `<div class="bigcard${red ? ' rd' : ''}">${c.rank}<br>${c.suit}</div>`;
+  }).join('');
+}
+
+function renderTurnBar(s, me) {
+  const bar = document.getElementById('tbar');
+  if (!s.to_act || !s.to_act.length || s.stage === 'waiting' || s.stage === 'showdown') {
+    bar.className = 'tbar';
+    return;
+  }
+  const actUid = s.to_act[0];
+  if (actUid === ME) {
+    const toCall = me ? Math.max(0, s.current_bet - me.round_bet) : 0;
+    bar.className = 'tbar me';
+    bar.textContent = `⚡ TAVA KĀRTA!${toCall > 0 ? '  Call: ' + toCall.toFixed(0) + ' coins' : '  Vari check'}`;
+  } else {
+    const ap = s.players[String(actUid)];
+    bar.className = 'tbar ot';
+    bar.textContent = '⏳ Gaida: ' + (ap ? ap.name : '...');
+  }
+}
+
+function renderActions(s, me) {
+  // isMyTurn: it's my turn when the server says current_seat is my seat AND I'm first in to_act
+  const isMyTurn = !!(me
+    && Array.isArray(s.to_act)
+    && s.to_act[0] === ME
+    && s.current_seat === me.seat
+    && s.stage !== 'waiting'
+    && s.stage !== 'showdown');
+
+  const toCall = me ? Math.max(0, s.current_bet - me.round_bet) : 0;
+
+  document.getElementById('btn-fold').disabled  = !isMyTurn;
+  document.getElementById('btn-check').disabled = !isMyTurn || toCall > 0;
+  document.getElementById('btn-call').disabled  = !isMyTurn || toCall === 0;
+  document.getElementById('btn-raise').disabled = !isMyTurn;
+  document.getElementById('raise-amt').disabled = !isMyTurn;
+
+  // Show call amount in button
+  const callBtn = document.getElementById('btn-call');
+  callBtn.textContent = toCall > 0 ? `📞 Call ${toCall.toFixed(0)}` : '📞 Call';
+
+  // Pre-fill raise amount
+  if (isMyTurn) {
+    const rInput = document.getElementById('raise-amt');
+    if (!rInput.value) {
+      rInput.value = Math.max(s.current_bet * 2, 20).toFixed(0);
+    }
+  }
+}
+
+function renderWinners(s) {
+  const wb = document.getElementById('wbanner');
+  const wd = document.getElementById('wdetail');
+  if (s.stage === 'showdown' && s.winners && s.winners.length) {
+    wb.classList.add('vis');
+    wd.innerHTML = s.winners.map(w => {
+      const cards = w.cards
+        ? w.cards.map(c => (c.rank || '') + (c.suit || '')).filter(Boolean).join(' ')
+        : '';
+      return `🏆 <b>${w.name}</b> uzvar <b>${w.amount.toFixed(0)}</b> coins — ${w.hand_name}${cards ? ' <span style="color:#888">(${cards})</span>' : ''}`;
+    }).join('<br>');
+  } else {
+    wb.classList.remove('vis');
+  }
+}
+
+// ─────────────────────── ACTION BUTTONS ───────────────────────
+document.getElementById('btn-fold').addEventListener('click', () =>
+  socket.emit('holdem_action', { action: 'fold' }));
+
+document.getElementById('btn-check').addEventListener('click', () =>
+  socket.emit('holdem_action', { action: 'check' }));
+
+document.getElementById('btn-call').addEventListener('click', () =>
+  socket.emit('holdem_action', { action: 'call' }));
+
+document.getElementById('btn-raise').addEventListener('click', () => {
+  const amt = parseFloat(document.getElementById('raise-amt').value) || 0;
+  if (amt <= 0) { alert('Ievadi raise summu!'); return; }
+  socket.emit('holdem_action', { action: 'raise', amount: amt });
+  document.getElementById('raise-amt').value = '';
+});
+
+document.getElementById('btn-leave').addEventListener('click', () =>
+  socket.emit('holdem_leave_table', { table_id: tableId }));
+</script>
+{% endblock %}

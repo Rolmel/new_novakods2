@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}🏛️ {{ club.name }}{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:800px; margin:0 auto; padding:24px 20px; }
+.back-link { color:var(--gold); text-decoration:none; display:inline-block; margin-bottom:16px; }
+.club-header {
+  background: radial-gradient(ellipse at top, #1a1000 0%, #0a0a0f 70%);
+  border:1px solid var(--gold); border-radius:16px; padding:30px; text-align:center; margin-bottom:20px;
+}
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); margin:0 0 6px; font-size:1.8rem; }
+.club-desc { color:#666; margin-bottom:16px; }
+.club-meta { display:flex; gap:20px; justify-content:center; flex-wrap:wrap; }
+.club-stat { text-align:center; }
+.club-stat .val { font-size:1.3rem; font-weight:700; color:var(--gold); }
+.club-stat .lbl { font-size:0.72rem; color:#444; text-transform:uppercase; letter-spacing:1px; }
+.invite-box {
+  background:#0a0a14; border:1px solid #2a2a3a; border-radius:10px;
+  padding:12px 16px; margin-top:16px; display:flex; align-items:center; gap:10px;
+  font-size:0.85rem;
+}
+.invite-code { flex:1; color:var(--gold); font-weight:700; letter-spacing:1px; font-family:monospace; }
+.copy-btn {
+  background:#1a1a2e; border:1px solid #444; color:#aaa; border-radius:8px;
+  padding:6px 12px; cursor:pointer; font-family:'Rajdhani',sans-serif; font-size:0.8rem;
+  transition:all .15s;
+}
+.copy-btn:hover { border-color:var(--gold); color:var(--gold); }
+.panel { background:#111118; border:1px solid #2a2a3a; border-radius:14px; padding:20px; margin-bottom:16px; }
+.panel-title { color:var(--gold); font-weight:700; margin-bottom:16px; }
+.lb-table { width:100%; border-collapse:collapse; }
+.lb-table th { color:#444; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px;
+               padding:6px 10px; border-bottom:1px solid #1a1a24; text-align:left; }
+.lb-table td { padding:10px; border-bottom:1px solid #111120; }
+.lb-table tr:last-child td { border:none; }
+.lb-table tr:hover td { background:#0a0a14; }
+.rank { color:#555; font-weight:700; min-width:32px; }
+.rank.top1 { color:#f5c842; }
+.rank.top2 { color:#c0c0c0; }
+.rank.top3 { color:#cd7f32; }
+.username { font-weight:600; }
+.username.me { color:var(--gold); }
+.won  { color:var(--green); font-weight:700; }
+.games { color:#555; }
+.role-badge {
+  display:inline-block; padding:2px 8px; border-radius:12px; font-size:0.7rem; font-weight:700;
+}
+.role-owner  { background:#f5c84222; border:1px solid var(--gold); color:var(--gold); }
+.role-admin  { background:#ff174422; border:1px solid var(--red); color:var(--red); }
+.role-member { background:#2196f318; border:1px solid #2196f3; color:#2196f3; }
+.leave-btn {
+  width:100%; padding:12px; background:#1a0a0a; border:1px solid #3a1a1a;
+  color:#ff4444; border-radius:10px; cursor:pointer; font-family:'Rajdhani',sans-serif;
+  font-weight:700; transition:all .15s;
+}
+.leave-btn:hover { background:#2a0a0a; border-color:var(--red); }
+</style>
+
+<div class="page">
+  <a href="/clubs" class="back-link">← Atpakaļ uz klubiem</a>
+
+  <div class="club-header">
+    <div style="font-size:3rem;margin-bottom:10px">🏛️</div>
+    <h1>{{ club.name }}</h1>
+    <div class="club-desc">{{ club.description or 'Nav apraksta.' }}</div>
+    <div class="club-meta">
+      <div class="club-stat">
+        <div class="val">{{ members|length }}</div>
+        <div class="lbl">Dalībnieki</div>
+      </div>
+      <div class="club-stat">
+        <div class="val" style="color:var(--green)">+{{ "%.0f"|format(members|sum(attribute='total_won')) }}</div>
+        <div class="lbl">Kopā uzvarēts</div>
+      </div>
+      <div class="club-stat">
+        <div class="val">{{ members|sum(attribute='total_games') }}</div>
+        <div class="lbl">Spēles</div>
+      </div>
+    </div>
+
+    {% if is_member %}
+    <div class="invite-box">
+      <span style="color:#555">🔗 Ielūguma kods:</span>
+      <span class="invite-code">{{ club.invite_code }}</span>
+      <button class="copy-btn" onclick="navigator.clipboard.writeText('{{ club.invite_code }}').then(()=>this.textContent='✓ Kopēts!')">📋 Kopēt</button>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">🏆 Līderu Saraksts</div>
+    <table class="lb-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Spēlētājs</th>
+          <th>Loma</th>
+          <th>Uzvarēts</th>
+          <th>Spēles</th>
+          <th>Bilance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in members %}
+        <tr>
+          <td class="rank {{ 'top1' if loop.index == 1 else 'top2' if loop.index == 2 else 'top3' if loop.index == 3 else '' }}">
+            {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}#{{ loop.index }}{% endif %}
+          </td>
+          <td class="username {{ 'me' if m.username == session.user_name else '' }}">
+            <a href="/u/{{ m.username }}" style="color:inherit;text-decoration:none;">
+              {{ m.username }}{% if m.username == session.user_name %} (Tu){% endif %}
+            </a>
+          </td>
+          <td>
+            <span class="role-badge role-{{ m.role }}">{{ m.role }}</span>
+          </td>
+          <td class="won">+{{ "%.0f"|format(m.total_won) }}</td>
+          <td class="games">{{ m.total_games }}</td>
+          <td style="color:var(--gold)">{{ "%.0f"|format(m.balance) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_member and not is_owner %}
+  <form action="/clubs/{{ club.id }}/leave" method="POST"
+        onsubmit="return confirm('Tiešām atstāt šo klubu?')">
+    <button type="submit" class="leave-btn">🚪 Atstāt klubu</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

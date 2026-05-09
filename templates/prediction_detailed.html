@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}📈 {{ event.title }}{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; --blue:#2196f3; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:760px; margin:0 auto; padding:24px 20px; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); margin-bottom:6px; font-size:1.6rem; }
+.meta { color:#555; font-size:0.85rem; margin-bottom:20px; }
+.meta span { margin-right:14px; }
+.back-link { color:var(--gold); text-decoration:none; display:inline-block; margin-bottom:16px; }
+.panel { background:#111118; border:1px solid #2a2a3a; border-radius:14px; padding:20px; margin-bottom:16px; }
+.panel-title { color:#888; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:14px; }
+.opt-row {
+  display:flex; align-items:center; gap:12px;
+  background:#0a0a14; border:1px solid #2a2a3a; border-radius:10px;
+  padding:12px 16px; margin-bottom:8px; cursor:pointer;
+  transition:border-color .2s; position:relative; overflow:hidden;
+}
+.opt-row:hover { border-color:var(--gold); }
+.opt-row.selected { border-color:var(--blue); background:#2196f311; }
+.opt-fill-bg {
+  position:absolute; left:0; top:0; bottom:0;
+  background:linear-gradient(90deg,#2196f318,transparent);
+  transition:width .5s ease; pointer-events:none;
+}
+.opt-label { font-weight:700; font-size:1rem; flex:1; position:relative; }
+.opt-prob  { color:var(--gold); font-size:0.9rem; font-weight:700; position:relative; }
+.opt-vol   { color:#444; font-size:0.78rem; position:relative; }
+.bet-panel { }
+.bet-row   { display:flex; gap:10px; align-items:center; margin-top:12px; }
+.bet-input {
+  flex:1; padding:10px 14px; background:#0a0a14;
+  border:1px solid #333; border-radius:8px; color:#fff;
+  font-family:'Rajdhani',sans-serif; font-size:1rem;
+}
+.bet-input:focus { outline:none; border-color:var(--gold); }
+.bet-btn {
+  padding:10px 24px; background:linear-gradient(135deg,#f5c842,#e6a800);
+  border:none; border-radius:8px; font-weight:700; cursor:pointer;
+  font-family:'Rajdhani',sans-serif; font-size:1rem;
+}
+.bet-btn:disabled { opacity:.4; cursor:not-allowed; }
+.result-msg { padding:10px; border-radius:8px; margin-top:10px; font-weight:600; }
+.win  { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.err  { background:#ff174422; border:1px solid var(--red);   color:#ff8888; }
+.position-box {
+  background:#2196f311; border:1px solid var(--blue); border-radius:10px;
+  padding:14px; margin-bottom:16px; font-size:0.9rem;
+}
+.resolved-box {
+  background:#f5c84211; border:2px solid var(--gold); border-radius:10px;
+  padding:16px; margin-bottom:16px; text-align:center;
+}
+.resolved-box h3 { color:var(--gold); margin:0 0 6px; font-family:'Cinzel Decorative',serif; }
+.feed { max-height:220px; overflow-y:auto; }
+.feed-row { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #111120; font-size:0.83rem; }
+.feed-row:last-child { border:none; }
+.balance-bar { color:var(--gold); font-size:1rem; margin-bottom:14px; }
+.admin-resolve { margin-top:10px; padding-top:10px; border-top:1px solid #2a2a3a; }
+.resolve-btn {
+  width:100%; padding:12px; background:linear-gradient(135deg,#ff1744,#cc0022);
+  border:none; border-radius:8px; color:#fff; font-weight:700;
+  font-family:'Rajdhani',sans-serif; cursor:pointer; margin-top:8px;
+}
+</style>
+
+<div class="page">
+  <a href="/predictions" class="back-link">← Atpakaļ</a>
+  <h1>{{ event.title }}</h1>
+  <div class="meta">
+    <span>📁 {{ event.category }}</span>
+    <span>⏰ Līdz {{ event.closes_at }}</span>
+    <span>🔖 {{ event.status }}</span>
+  </div>
+  <div class="balance-bar">💰 <span id="balance">{{ "%.2f"|format(balance) }}</span> coins</div>
+
+  {% if event.description %}
+  <p style="color:#888;margin-bottom:16px;">{{ event.description }}</p>
+  {% endif %}
+
+  {% if event.status == 'resolved' %}
+  <div class="resolved-box">
+    <h3>🏆 Atrisināts</h3>
+    <p>Uzvarētājs: <strong>{{ event.outcome }}</strong></p>
+  </div>
+  {% endif %}
+
+  {% if my_position %}
+  <div class="position-box">
+    ✅ Tu likmēji <strong>{{ my_position.stake }} coins</strong>
+    uz <strong>{{ my_position.option_label }}</strong>
+    {% if my_position.payout %} — Izmaksa: <strong style="color:var(--green)">{{ my_position.payout }} coins</strong>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="panel">
+    <div class="panel-title">Opcijas</div>
+    {% set total_vol = namespace(v=0) %}
+    {% for o in options %}{% set total_vol.v = total_vol.v + o.volume %}{% endfor %}
+    {% for o in options %}
+    {% set pct = ((o.volume / total_vol.v * 100) if total_vol.v > 0 else (100 / options|length)) | round(1) %}
+    <div class="opt-row" id="opt-{{ o.id }}" onclick="selectOption({{ o.id }})">
+      <div class="opt-fill-bg" style="width:{{ pct }}%"></div>
+      <div class="opt-label">{{ o.label }}</div>
+      <div>
+        <div class="opt-prob">{{ pct }}%</div>
+        <div class="opt-vol">{{ o.volume }} coins · {{ o.backers }} spēlētāji</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if event.status == 'open' and not my_position %}
+  <div class="panel bet-panel">
+    <div class="panel-title">Likt likmi</div>
+    <p style="color:#666;font-size:0.85rem;" id="selected-label">Izvēlies opciju augstāk</p>
+    <div class="bet-row">
+      <input class="bet-input" id="stake-input" type="number" min="1" placeholder="Likme (coins)">
+      <button class="bet-btn" id="bet-btn" onclick="placeBet()" disabled>Likt likmi</button>
+    </div>
+    <div id="bet-msg" style="display:none;" class="result-msg"></div>
+  </div>
+  {% endif %}
+
+  {% if is_admin and event.status != 'resolved' %}
+  <div class="panel">
+    <div class="panel-title admin-resolve">⚙️ Admin — Atrisināt</div>
+    <p style="color:#666;font-size:0.85rem;">Izvēlies uzvarējušo opciju:</p>
+    {% for o in options %}
+    <button onclick="resolveEvent({{ o.id }})"
+            style="width:100%;margin-bottom:6px;padding:10px;background:#1a1a2e;border:1px solid #555;color:#ccc;border-radius:8px;cursor:pointer;font-family:'Rajdhani',sans-serif;text-align:left;">
+      🏆 {{ o.label }}
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="panel">
+    <div class="panel-title">Pēdējās likmes</div>
+    <div class="feed" id="feed">
+      {% for b in recent_bets %}
+      <div class="feed-row">
+        <span style="color:#aaa">{{ b.username }}</span>
+        <span style="color:var(--gold)">{{ b.stake }} coins</span>
+        <span style="color:#888">{{ b.label }}</span>
+        <span style="color:#333;font-size:0.75rem">{{ b.created_at }}</span>
+      </div>
+      {% else %}
+      <div style="color:#333;text-align:center;padding:20px;">Nav likmju vēl.</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<script>
+const EVENT_ID = {{ event.id }};
+let selectedOptionId = null;
+
+const socket = io({ transports: ['websocket','polling'] });
+socket.on('connect', () => socket.emit('watch_prediction', { event_id: EVENT_ID }));
+
+socket.on('prediction_price_update', d => {
+  if (d.event_id !== EVENT_ID) return;
+  const total = d.options.reduce((s, o) => s + o.volume, 0) || 1;
+  d.options.forEach(o => {
+    const pct   = Math.round(o.volume / total * 1000) / 10;
+    const row   = document.getElementById(`opt-${o.id}`);
+    if (!row) return;
+    row.querySelector('.opt-fill-bg').style.width = pct + '%';
+    row.querySelector('.opt-prob').textContent     = pct + '%';
+    row.querySelector('.opt-vol').textContent      = o.volume + ' coins · ' + o.backers + ' spēlētāji';
+  });
+  appendFeedRow('📊 Cenas atjauninātas');
+});
+
+socket.on('prediction_resolved', d => {
+  if (d.event_id !== EVENT_ID) return;
+  appendFeedRow(`🏆 Atrisināts! Uzvar: ${d.winning_option.label} — Banka: ${d.total_pot} coins`);
+  setTimeout(() => location.reload(), 3000);
+});
+
+function selectOption(id) {
+  document.querySelectorAll('.opt-row').forEach(r => r.classList.remove('selected'));
+  document.getElementById(`opt-${id}`).classList.add('selected');
+  selectedOptionId = id;
+  document.getElementById('selected-label').textContent = 'Izvēlēta opcija #' + id;
+  document.getElementById('bet-btn').disabled = false;
+}
+
+async function placeBet() {
+  const stake = parseFloat(document.getElementById('stake-input').value);
+  if (!selectedOptionId || !(stake > 0)) return;
+  const res  = await fetch(`/api/predictions/${EVENT_ID}/bet`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ option_id: selectedOptionId, stake })
+  });
+  const data = await res.json();
+  const msg  = document.getElementById('bet-msg');
+  msg.style.display = 'block';
+  if (data.ok) {
+    msg.className = 'result-msg win';
+    msg.textContent = `✅ Likme pieņemta! Bilance: ${data.balance.toFixed(2)} coins`;
+    document.getElementById('balance').textContent = data.balance.toFixed(2);
+    document.getElementById('bet-btn').disabled = true;
+  } else {
+    msg.className = 'result-msg err';
+    msg.textContent = '❌ ' + data.error;
+  }
+}
+
+async function resolveEvent(optionId) {
+  if (!confirm('Tiešām atrisināt ar šo opciju?')) return;
+  const res  = await fetch(`/api/predictions/${EVENT_ID}/resolve`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ option_id: optionId })
+  });
+  const data = await res.json();
+  if (data.ok) { location.reload(); }
+  else         { alert(data.error); }
+}
+
+function appendFeedRow(text) {
+  const feed = document.getElementById('feed');
+  const div  = document.createElement('div');
+  div.className = 'feed-row';
+  div.innerHTML = `<span style="color:var(--gold)">${text}</span><span style="color:#333;font-size:.75rem">Tagad</span>`;
+  feed.prepend(div);
+}
+</script>
+{% endblock %}

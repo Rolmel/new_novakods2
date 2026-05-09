@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Reģistrēties{% endblock %}
+{% block content %}
+<div class="auth-container">
+    <h2>Reģistrēties</h2>
+    <div class="form-group">
+        <form action="/register" method="POST">
+            <label>Lietotājvārds</label>
+            <input type="text" name="user" required>
+            <label style="margin-top:15px; display:block;">Parole</label>
+            <input type="password" name="pass" required>
+            <button type="submit" class="btn" style="margin-top:20px;">Izveidot kontu</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}🎱 Keno{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; --blue:#2196f3; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:640px; margin:0 auto; padding:20px; text-align:center; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); }
+.balance-display { color:var(--gold); font-size:1.2rem; font-weight:600; margin:8px 0; }
+.keno-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 5px;
+  background: #111118;
+  border: 2px solid #2a2a3a;
+  border-radius: 16px;
+  padding: 16px;
+  margin: 16px 0;
+}
+.keno-num {
+  aspect-ratio: 1;
+  display: flex; align-items:center; justify-content:center;
+  border-radius: 8px;
+  font-size: clamp(0.7rem, 1.5vw, 0.95rem);
+  font-weight: 600;
+  cursor: pointer;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  transition: all .15s;
+  user-select: none;
+}
+.keno-num:hover { border-color: var(--gold); color:var(--gold); }
+.keno-num.selected { background: var(--gold); color: #000; border-color:var(--gold); }
+.keno-num.drawn { background: var(--blue); color:#fff; border-color:var(--blue); }
+.keno-num.match { background: var(--green); color:#000; border-color:var(--green); animation: pop .3s ease; }
+@keyframes pop { 0%{transform:scale(1)} 50%{transform:scale(1.3)} 100%{transform:scale(1)} }
+.info-bar { display:flex; gap:12px; justify-content:center; align-items:center; flex-wrap:wrap; margin:10px 0; }
+.info-chip { background:#1a1a2e; border:1px solid #333; border-radius:20px; padding:4px 14px; font-size:0.9rem; }
+.info-chip span { color:var(--gold); font-weight:700; }
+.controls { background:#111118; border:1px solid #2a2a3a; border-radius:16px; padding:16px; margin:12px 0; }
+.bet-row { display:flex; align-items:center; justify-content:center; gap:10px; margin:8px 0; }
+.bet-row button { width:32px;height:32px; background:#1a1a2e; border:1px solid var(--gold); color:var(--gold); border-radius:8px; cursor:pointer; }
+.play-btn {
+  width:100%; padding:14px;
+  background:linear-gradient(135deg,#f5c842,#e6a800);
+  border:none; border-radius:10px;
+  font-family:'Rajdhani',sans-serif; font-size:1.2rem; font-weight:700;
+  color:#000; cursor:pointer; margin-top:8px;
+}
+.play-btn:disabled { opacity:.4; cursor:not-allowed; }
+.clear-btn {
+  width:100%; padding:10px;
+  background:#1a1a2e; border:1px solid #555;
+  border-radius:10px; color:#aaa;
+  font-family:'Rajdhani',sans-serif; font-size:0.9rem;
+  cursor:pointer; margin-top:6px;
+}
+.result-msg { padding:10px; border-radius:8px; margin:10px 0; font-weight:600; }
+.win  { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.loss { background:#ff174422; border:1px solid var(--red); color:#ff8888; }
+.neutral { background:#1a1a24; border:1px solid #333; color:#888; }
+.back-link { color:var(--gold); text-decoration:none; }
+</style>
+
+<div class="page">
+  <a href="/casino" class="back-link">← Atpakaļ</a>
+  <h1>🎱 Keno</h1>
+  <div class="balance-display">💰 <span id="balance">{{ "%.2f"|format(balance) }}</span></div>
+
+  <div class="info-bar">
+    <div class="info-chip">Izvēlēts: <span id="pick-count">0</span>/10</div>
+    <div class="info-chip">Izloze: 20 no 80</div>
+  </div>
+
+  <div class="keno-grid" id="keno-grid"></div>
+
+  <div class="controls">
+    <div class="result-msg neutral" id="result-msg">Izvēlies 1–10 skaitļus un spēlē!</div>
+    <div class="bet-row">
+      <button onclick="changeBet(-5)">−</button>
+      <span>Likme: <b id="bet-val">10</b> coins</span>
+      <button onclick="changeBet(5)">+</button>
+    </div>
+    <button class="play-btn" id="play-btn" onclick="playKeno()">🎱 SPĒLĒT</button>
+    <button class="clear-btn" onclick="clearPicks()">Notīrīt izvēli</button>
+  </div>
+</div>
+
+<script>
+let picks = new Set();
+let bet = 10;
+
+// Izveido režģi
+const grid = document.getElementById('keno-grid');
+for (let i = 1; i <= 80; i++) {
+  const div = document.createElement('div');
+  div.className = 'keno-num';
+  div.id = `kn-${i}`;
+  div.textContent = i;
+  div.onclick = () => togglePick(i);
+  grid.appendChild(div);
+}
+
+function togglePick(n) {
+  if (picks.has(n)) {
+    picks.delete(n);
+    document.getElementById(`kn-${n}`).classList.remove('selected');
+  } else if (picks.size < 10) {
+    picks.add(n);
+    document.getElementById(`kn-${n}`).classList.add('selected');
+  }
+  document.getElementById('pick-count').textContent = picks.size;
+}
+
+function clearPicks() {
+  picks.forEach(n => document.getElementById(`kn-${n}`).classList.remove('selected'));
+  picks.clear();
+  document.getElementById('pick-count').textContent = 0;
+  // Reset drawn/match classes
+  for (let i=1;i<=80;i++) {
+    const el = document.getElementById(`kn-${i}`);
+    el.classList.remove('drawn','match');
+  }
+}
+
+function changeBet(d) {
+  bet = Math.max(1, Math.min(parseFloat(document.getElementById('balance').textContent)||9999, bet+d));
+  document.getElementById('bet-val').textContent = bet;
+}
+
+async function playKeno() {
+  if (picks.size === 0) { alert('Izvēlies vismaz 1 skaitli!'); return; }
+  document.getElementById('play-btn').disabled = true;
+
+  // Reset visus
+  for (let i=1;i<=80;i++) {
+    const el = document.getElementById(`kn-${i}`);
+    el.classList.remove('drawn','match');
+  }
+
+  const res = await fetch('/api/casino/keno', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bet, picks: [...picks]})
+  });
+  const data = await res.json();
+  if (data.error) { alert(data.error); document.getElementById('play-btn').disabled=false; return; }
+
+  // Animē izlozes numurus
+  let i = 0;
+  const interval = setInterval(() => {
+    if (i >= data.drawn.length) {
+      clearInterval(interval);
+      document.getElementById('play-btn').disabled = false;
+      return;
+    }
+    const n = data.drawn[i];
+    const el = document.getElementById(`kn-${n}`);
+    if (picks.has(n)) {
+      el.classList.add('match');
+    } else {
+      el.classList.add('drawn');
+    }
+    i++;
+  }, 120);
+
+  document.getElementById('balance').textContent = data.balance.toFixed(2);
+  const msg = document.getElementById('result-msg');
+  if (data.net > 0) {
+    msg.className = 'result-msg win';
+    msg.textContent = `🎉 ${data.matches} sakritības! x${data.multiplier} → +${data.winnings.toFixed(2)} coins!`;
+  } else {
+    msg.className = 'result-msg loss';
+    msg.textContent = `😞 ${data.matches} sakritība(-s). Bez izmaksas šoreiz.`;
+  }
+}
+</script>
+{% endblock %}

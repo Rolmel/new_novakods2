@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}NovaKods — Sākums{% endblock %}
+{% block content %}
+
+<div style="text-align:center; margin: 40px 0 30px 0;">
+    <h2>Welcome to NovaKods</h2>
+    <p style="color: var(--text-muted);">Choose your application to continue.</p>
+</div>
+
+<div class="index-grid">
+    <a href="/bumbox" class="index-card">
+        <span class="icon">☁️</span>
+        <h3>Bumbox</h3>
+        <p>Your personal cloud storage. Upload and manage your files safely.</p>
+    </a>
+    <a href="/canvas" class="index-card">
+        <span class="icon">🎨</span>
+        <h3>PixelWar (r/place)</h3>
+        <p>Collaborative canvas. Place blocks, fight for territory, climb the scoreboard.</p>
+    </a>
+    <a href="/site" class="index-card">
+        <span class="icon">💬</span>
+        <h3>SecretBox</h3>
+        <p>Chat with everybody privately, easy peasy. Secrets stay in secretbox.</p>
+    </a>
+</div>
+
+{% endblock %}
