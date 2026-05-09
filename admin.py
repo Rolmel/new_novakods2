@@ -42,7 +42,8 @@ socketio = SocketIO(app, cors_allowed_origins=os.environ.get('ALLOWED_ORIGIN', '
 _secret = os.environ.get('SECRET_KEY')
 if not _secret:
     raise RuntimeError('SECRET_KEY environment variable is not set')
-app.secret_key = _secretapp.config['SESSION_COOKIE_HTTPONLY'] = True
+app.secret_key = _secret
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400
 
