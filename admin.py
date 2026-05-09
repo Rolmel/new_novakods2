@@ -2238,6 +2238,11 @@ def api_shop_buy():
         "INSERT INTO user_cosmetics (user_id, cosmetic_id) VALUES (%s, %s)",
         (user_id, cosmetic_id)
     )
+    cur2.execute(
+    """INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+       VALUES (%s, %s, %s, %s, %s)""",
+    (user_id, -item['price'], 'shop:buy', str(cosmetic_id), round(balance, 2))
+    )
     conn.commit()
     cur2.close()
     cur.close()
