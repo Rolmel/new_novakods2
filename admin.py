@@ -128,6 +128,11 @@ def not_found(e):
 def index():
     return render_template('index.html')
 
+@app.route('/profile')
+@login_required
+def profile_redirect():
+    return redirect(url_for('profile_page', username=session['user_name']))
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -930,7 +935,7 @@ def bingo_call():
         return jsonify({"error": "Nav aktīvas spēles"}), 400
 
     user_id = session['user_id']
-    card = sessi
+    card = session.get('bingo_card')
     all_nums = list(range(1, 76))
     remaining = [n for n in all_nums if n not in called]
     if not remaining:
@@ -974,12 +979,12 @@ def bingo_call():
             session.pop(k, None)
 
     return jsonify({
-        "number": new_num,
-        "called": called,
-        "bingo": has_bingo,
-        "winnings": 0,
-        "balance": round(balance, 2)
-    })
+            "number": new_num,
+            "called": called,
+            "bingo": has_bingo,
+            "winnings": winnings,
+            "balance": round(balance, 2) if balance is not None else None
+        })
 
 # ==========================================
 #  POKER (delegated to redis_games)
@@ -1872,11 +1877,29 @@ def predictions_list():
     """, (session['user_id'],))
     positions = {r['event_id']: dict(r) for r in cur.fetchall()}
 
-    balance = get_or_create_balance(conn, session['user_id'])
-    cur.close()
-    conn.close()
+    events = [dict(e) for e in events]
+        event_ids = [e['id'] for e in events]
+        options_by_event = {}
+        if event_ids:
+            cur.execute("""
+                SELECT po.event_id, po.id, po.label,
+                    COALESCE(pv.total_stake, 0)  AS volume,
+                    COALESCE(pv.backer_count, 0) AS backers
+                FROM prediction_options po
+                LEFT JOIN prediction_volume pv ON pv.option_id = po.id
+                WHERE po.event_id = ANY(%s)
+                ORDER BY po.event_id, po.id
+            """, (event_ids,))
+            for o in cur.fetchall():
+                options_by_event.setdefault(o['event_id'], []).append(dict(o))
+        for e in events:
+            e['options'] = options_by_event.get(e['id'], [])
+
+        balance = get_or_create_balance(conn, session['user_id'])
+        cur.close()
+        conn.close()
     return render_template('predictions.html',
-                           events=[dict(e) for e in events],
+                           events=events,
                            positions=positions,
                            balance=balance)
 
@@ -2336,7 +2359,7 @@ def leave_club(club_id):
  
 @app.route('/clubs/<int:club_id>')
 @login_required
-def club_detail(club_id):
+def club_detailed(club_id):
     user_id = session['user_id']
     conn = get_db_connection()
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
