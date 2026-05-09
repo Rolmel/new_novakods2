@@ -22,6 +22,8 @@ from redis_games import (
     bj_deal, bj_hit, bj_stand,
     poker_deal, poker_draw,
     tower_start, tower_step, tower_cashout,
+    hl_start, hl_guess,
+    bingo_new_card, bingo_call,
 )
 
 
@@ -555,6 +557,7 @@ def api_daily_bonus():
     )
     cur2.close()
     conn.commit()   
+    conn.close()
 
     redis.setex(key, 86400, '1')
     return jsonify({
@@ -578,16 +581,14 @@ def dev_redis_state(game, uid):
 # --- PALĪGFUNKCIJAS ---
 def get_or_create_balance(conn, user_id):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        INSERT INTO wallets (user_id, balance)
+        VALUES (%s, 1000)
+        ON CONFLICT (user_id) DO NOTHING
+    """, (user_id,))
+    conn.commit()
     cur.execute("SELECT balance FROM wallets WHERE user_id = %s", (user_id,))
     row = cur.fetchone()
-    if row is None:
-        cur.execute(
-            "INSERT INTO wallets (user_id, balance) VALUES (%s, 1000) RETURNING balance",
-            (user_id,)
-        )
-        conn.commit()
-        cur.close()
-        return 1000.0
     cur.close()
     return float(row['balance'])
 
@@ -741,86 +742,86 @@ def highlow():
     conn.close()
     return render_template('casino_highlow.html', balance=balance)
 
-@app.route('/api/casino/highlow/start', methods=['POST'])
-@login_required
-def hl_start():
-    deck = CARD_DECK_HL.copy()
-    random.shuffle(deck)
-    card = deck.pop()
-    session['hl_deck'] = deck
-    session['hl_current'] = card
-    session['hl_streak'] = 0
-    return jsonify({"card": card, "value": card_value(card), "streak": 0})
+# @app.route('/api/casino/highlow/start', methods=['POST'])
+# @login_required
+# def hl_start():
+#     deck = CARD_DECK_HL.copy()
+#     random.shuffle(deck)
+#     card = deck.pop()
+#     session['hl_deck'] = deck
+#     session['hl_current'] = card
+#     session['hl_streak'] = 0
+#     return jsonify({"card": card, "value": card_value(card), "streak": 0})
 
-@app.route('/api/casino/highlow/guess', methods=['POST'])
-@login_required
-def hl_guess():
-    user_id = session['user_id']
-    data = request.json
-    guess = data.get('guess')
-    bet = float(data.get('bet', 10))
+# @app.route('/api/casino/highlow/guess', methods=['POST'])
+# @login_required
+# def hl_guess():
+#     user_id = session['user_id']
+#     data = request.json
+#     guess = data.get('guess')
+#     bet = float(data.get('bet', 10))
 
-    deck = session.get('hl_deck', [])
-    current = session.get('hl_current')
-    streak = session.get('hl_streak', 0)
-    if not current or not deck:
-        return jsonify({"error": "Sāc jaunu spēli"}), 400
+#     deck = session.get('hl_deck', [])
+#     current = session.get('hl_current')
+#     streak = session.get('hl_streak', 0)
+#     if not current or not deck:
+#         return jsonify({"error": "Sāc jaunu spēli"}), 400
 
-    next_card = deck.pop()
-    curr_val = card_value(current)
-    next_val = card_value(next_card)
+#     next_card = deck.pop()
+#     curr_val = card_value(current)
+#     next_val = card_value(next_card)
 
-    if (guess == 'high' and next_val > curr_val) or \
-       (guess == 'low' and next_val < curr_val):
-        correct = True
-        streak += 1
-    elif next_val == curr_val:
-        correct = None
-        streak = streak
-    else:
-        correct = False
-        streak = 0
+#     if (guess == 'high' and next_val > curr_val) or \
+#        (guess == 'low' and next_val < curr_val):
+#         correct = True
+#         streak += 1
+#     elif next_val == curr_val:
+#         correct = None
+#         streak = streak
+#     else:
+#         correct = False
+#         streak = 0
 
-    session['hl_current'] = next_card
-    session['hl_deck'] = deck
-    session['hl_streak'] = streak
+#     session['hl_current'] = next_card
+#     session['hl_deck'] = deck
+#     session['hl_streak'] = streak
 
-    winnings = 0
-    balance = None
-    if correct is True:
-        multiplier = 1 + (streak * 0.5)
-        winnings = bet * multiplier
-        winnings = winnings - bet
-        conn = get_db_connection()
-        balance = get_or_create_balance(conn, user_id)
-        balance += winnings
-        cur = conn.cursor()
-        cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
-        record_transaction(conn, user_id, 'highlow', bet, f"Pareizi! Streak {streak}", winnings, balance)
-        conn.commit()
-        cur.close()
-        conn.close()
-    elif correct is False:
-        conn = get_db_connection()
-        balance = get_or_create_balance(conn, user_id)
-        balance -= bet
-        if balance < 0: balance = 0
-        cur = conn.cursor()
-        cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
-        record_transaction(conn, user_id, 'highlow', bet, "Nepareizi", -bet, balance)
-        conn.commit()
-        cur.close()
-        conn.close()
+#     winnings = 0
+#     balance = None
+#     if correct is True:
+#         multiplier = 1 + (streak * 0.5)
+#         winnings = bet * multiplier
+#         winnings = winnings - bet
+#         conn = get_db_connection()
+#         balance = get_or_create_balance(conn, user_id)
+#         balance += winnings
+#         cur = conn.cursor()
+#         cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
+#         record_transaction(conn, user_id, 'highlow', bet, f"Pareizi! Streak {streak}", winnings, balance)
+#         conn.commit()
+#         cur.close()
+#         conn.close()
+#     elif correct is False:
+#         conn = get_db_connection()
+#         balance = get_or_create_balance(conn, user_id)
+#         balance -= bet
+#         if balance < 0: balance = 0
+#         cur = conn.cursor()
+#         cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
+#         record_transaction(conn, user_id, 'highlow', bet, "Nepareizi", -bet, balance)
+#         conn.commit()
+#         cur.close()
+#         conn.close()
 
-    return jsonify({
-        "next_card": next_card,
-        "next_value": next_val,
-        "correct": correct,
-        "streak": streak,
-        "winnings": winnings,
-        "net": winnings, 
-        "balance": balance
-    })
+#     return jsonify({
+#         "next_card": next_card,
+#         "next_value": next_val,
+#         "correct": correct,
+#         "streak": streak,
+#         "winnings": winnings,
+#         "net": winnings, 
+#         "balance": balance
+#     })
 
 # ==========================================
 #  KENO
@@ -900,101 +901,121 @@ def bingo():
     conn.close()
     return render_template('casino_bingo.html', balance=balance)
 
+# @app.route('/api/casino/bingo/new_card', methods=['POST'])
+# @login_required
+# def bingo_new_card():
+#     user_id = session['user_id']
+#     data = request.json
+#     bet = float(data.get('bet', 10))
+#     conn = get_db_connection()
+#     balance = get_or_create_balance(conn, user_id)
+#     if bet <= 0 or bet > balance:
+#         conn.close()
+#         return jsonify({"error": "Nepareizs likmjums"}), 400
+
+#     # Deduct bet immediately — loss is the default until bingo is hit
+#     balance -= bet
+#     cur = conn.cursor()
+#     cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
+#     record_transaction(conn, user_id, 'bingo', bet, 'Karte izsniegta (zaudējums)', -bet, balance)
+#     conn.commit()
+#     cur.close()
+
+#     ranges = [(1,15),(16,30),(31,45),(46,60),(61,75)]
+#     card = []
+#     for col_range in ranges:
+#         nums = random.sample(range(col_range[0], col_range[1]+1), 5)
+#         card.append(nums)
+#     card_t = [[card[col][row] for col in range(5)] for row in range(5)]
+#     card_t[2][2] = 'FREE'
+
+#     session['bingo_card'] = card_t
+#     session['bingo_bet'] = bet
+#     session['bingo_called'] = []
+#     conn.close()
+#     return jsonify({"card": card_t, "balance": round(balance, 2)})
+
+# @app.route('/api/casino/bingo/call', methods=['POST'])
+# @login_required
+# def bingo_call():
+#     user_id = session['user_id']
+#     card = session.get('bingo_card')
+#     called = session.get('bingo_called', [])
+#     bet = float(session.get('bingo_bet', 10))
+#     if not card:
+#         return jsonify({"error": "Nav aktīvas spēles"}), 400
+
+#     user_id = session['user_id']
+#     card = session.get('bingo_card')
+#     all_nums = list(range(1, 76))
+#     remaining = [n for n in all_nums if n not in called]
+#     if not remaining:
+#         return jsonify({"error": "Visi skaitļi izsaukti"}), 400
+
+#     new_num = random.choice(remaining)
+#     called.append(new_num)
+#     session['bingo_called'] = called
+
+#     def check_bingo(card, called_set):
+#         for row in card:
+#             if all(c == 'FREE' or c in called_set for c in row):
+#                 return True
+#         for col in range(5):
+#             if all(card[row][col] == 'FREE' or card[row][col] in called_set for row in range(5)):
+#                 return True
+#         if all(card[i][i] == 'FREE' or card[i][i] in called_set for i in range(5)):
+#             return True
+#         if all(card[i][4-i] == 'FREE' or card[i][4-i] in called_set for i in range(5)):
+#             return True
+#         return False
+
+#     called_set = set(called)
+#     has_bingo = check_bingo(card, called_set)
+#     winnings = 0
+#     balance = None
+
+#     if has_bingo:
+#         multiplier = max(2, 30 - len(called))
+#         winnings = round(bet * multiplier, 2)   # bet already gone, add full payout
+#         conn = get_db_connection()
+#         balance = get_or_create_balance(conn, user_id)
+#         balance += winnings
+#         cur = conn.cursor()
+#         cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
+#         record_transaction(conn, user_id, 'bingo', bet, f"BINGO! {len(called)} izsaukumi, x{multiplier}", winnings, balance)
+#         conn.commit()
+#         cur.close()
+#         conn.close()
+#         for k in ['bingo_card','bingo_bet','bingo_called']:
+#             session.pop(k, None)
+
+#     return jsonify({
+#             "number": new_num,
+#             "called": called,
+#             "bingo": has_bingo,
+#             "winnings": winnings,
+#             "balance": round(balance, 2) if balance is not None else None
+#         })
+
+@app.route('/api/casino/highlow/start', methods=['POST'])
+@login_required
+def hl_start_route():
+    return hl_start(app, session, request)
+
+@app.route('/api/casino/highlow/guess', methods=['POST'])
+@login_required
+def hl_guess_route():
+    return hl_guess(app, session, request)
+
 @app.route('/api/casino/bingo/new_card', methods=['POST'])
 @login_required
-def bingo_new_card():
-    user_id = session['user_id']
-    data = request.json
-    bet = float(data.get('bet', 10))
-    conn = get_db_connection()
-    balance = get_or_create_balance(conn, user_id)
-    if bet <= 0 or bet > balance:
-        conn.close()
-        return jsonify({"error": "Nepareizs likmjums"}), 400
-
-    # Deduct bet immediately — loss is the default until bingo is hit
-    balance -= bet
-    cur = conn.cursor()
-    cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
-    record_transaction(conn, user_id, 'bingo', bet, 'Karte izsniegta (zaudējums)', -bet, balance)
-    conn.commit()
-    cur.close()
-
-    ranges = [(1,15),(16,30),(31,45),(46,60),(61,75)]
-    card = []
-    for col_range in ranges:
-        nums = random.sample(range(col_range[0], col_range[1]+1), 5)
-        card.append(nums)
-    card_t = [[card[col][row] for col in range(5)] for row in range(5)]
-    card_t[2][2] = 'FREE'
-
-    session['bingo_card'] = card_t
-    session['bingo_bet'] = bet
-    session['bingo_called'] = []
-    conn.close()
-    return jsonify({"card": card_t, "balance": round(balance, 2)})
+def bingo_new_card_route():
+    return bingo_new_card(app, session, request)
 
 @app.route('/api/casino/bingo/call', methods=['POST'])
 @login_required
-def bingo_call():
-    user_id = session['user_id']
-    card = session.get('bingo_card')
-    called = session.get('bingo_called', [])
-    bet = float(session.get('bingo_bet', 10))
-    if not card:
-        return jsonify({"error": "Nav aktīvas spēles"}), 400
-
-    user_id = session['user_id']
-    card = session.get('bingo_card')
-    all_nums = list(range(1, 76))
-    remaining = [n for n in all_nums if n not in called]
-    if not remaining:
-        return jsonify({"error": "Visi skaitļi izsaukti"}), 400
-
-    new_num = random.choice(remaining)
-    called.append(new_num)
-    session['bingo_called'] = called
-
-    def check_bingo(card, called_set):
-        for row in card:
-            if all(c == 'FREE' or c in called_set for c in row):
-                return True
-        for col in range(5):
-            if all(card[row][col] == 'FREE' or card[row][col] in called_set for row in range(5)):
-                return True
-        if all(card[i][i] == 'FREE' or card[i][i] in called_set for i in range(5)):
-            return True
-        if all(card[i][4-i] == 'FREE' or card[i][4-i] in called_set for i in range(5)):
-            return True
-        return False
-
-    called_set = set(called)
-    has_bingo = check_bingo(card, called_set)
-    winnings = 0
-    balance = None
-
-    if has_bingo:
-        multiplier = max(2, 30 - len(called))
-        winnings = round(bet * multiplier, 2)   # bet already gone, add full payout
-        conn = get_db_connection()
-        balance = get_or_create_balance(conn, user_id)
-        balance += winnings
-        cur = conn.cursor()
-        cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
-        record_transaction(conn, user_id, 'bingo', bet, f"BINGO! {len(called)} izsaukumi, x{multiplier}", winnings, balance)
-        conn.commit()
-        cur.close()
-        conn.close()
-        for k in ['bingo_card','bingo_bet','bingo_called']:
-            session.pop(k, None)
-
-    return jsonify({
-            "number": new_num,
-            "called": called,
-            "bingo": has_bingo,
-            "winnings": winnings,
-            "balance": round(balance, 2) if balance is not None else None
-        })
+def bingo_call_route():
+    return bingo_call(app, session, request)
 
 # ==========================================
 #  POKER (delegated to redis_games)
@@ -1111,7 +1132,13 @@ def _new_holdem_table(tid):
         'hand_num': 0,
     }
 
-_HOLDEM_TABLES = {i: _new_holdem_table(i) for i in range(1, 6)}
+from redis_games import holdem_save_table, holdem_load_table, holdem_load_all_tables
+
+def _init_holdem_tables():
+    # import deferred so init_redis() has already run
+    return holdem_load_all_tables(_new_holdem_table)
+
+_HOLDEM_TABLES = {}   # filled in after Redis is ready
 
 def _feed(table_id, type_, name='', detail='', amount=None):
     socketio.emit('holdem_feed', {
@@ -1182,6 +1209,7 @@ def _broadcast_holdem(table_id):
             socketio.emit('holdem_private_cards',
                           {'cards': p['cards']},
                           room=f'hplayer_{uid}')
+    holdem_save_table(table_id, table)
 
 def _holdem_deal_hand(table_id):
     table = _HOLDEM_TABLES[table_id]
@@ -1905,13 +1933,14 @@ def predictions_list():
     for e in events:
         e['options'] = options_by_event.get(e['id'], [])
 
-        balance = get_or_create_balance(conn, session['user_id'])
-        cur.close()
-        conn.close()
+    balance = get_or_create_balance(conn, session['user_id'])
+    cur.close()
+    conn.close()
     return render_template('predictions.html',
                            events=events,
                            positions=positions,
-                           balance=balance)
+                           balance=balance,
+                           is_admin=session.get('is_admin', False))
 
 
 @app.route('/predictions/<int:event_id>')
@@ -2423,4 +2452,5 @@ def club_detailed(club_id):
 if __name__ == '__main__':
     init_db()
     init_redis()
+    _HOLDEM_TABLES.update(_init_holdem_tables())
     socketio.run(app, debug=False, host='0.0.0.0', port=5000)

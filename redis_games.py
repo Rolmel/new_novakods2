@@ -96,6 +96,28 @@ def _hand_total(hand: list[dict]) -> int:
 # =============================================================
 #  POKER RANK  (self-contained copy)
 # =============================================================
+# =============================================================
+#  HOLD'EM TABLE PERSISTENCE
+# =============================================================
+_HOLDEM_TTL = 60 * 60 * 6   # 6 hours
+
+def holdem_save_table(table_id: int, table: dict) -> None:
+    _r().setex(f'holdem:table:{table_id}', _HOLDEM_TTL, json.dumps(table))
+
+def holdem_load_table(table_id: int) -> dict | None:
+    raw = _r().get(f'holdem:table:{table_id}')
+    return json.loads(raw) if raw else None
+
+def holdem_load_all_tables(default_factory) -> dict:
+    tables = {}
+    for key in _r().scan_iter('holdem:table:*'):
+        tid = int(key.split(':')[-1])
+        raw = _r().get(key)
+        if raw:
+            tables[tid] = json.loads(raw)
+    if not tables:
+        tables = {i: default_factory(i) for i in range(1, 6)}
+    return tables
 
 def _poker_rank(hand: list[dict]) -> tuple[int, str, list]:
     from collections import Counter
@@ -534,6 +556,151 @@ def tower_cashout(app, session, request) -> Any:
         'multiplier': current_mult,
         'net':        net,
         'balance':    round(balance, 2),
+    })
+
+# =============================================================
+#  HIGH / LOW  (session → Redis)
+# =============================================================
+
+def hl_start(app, session, request):
+    user_id = session['user_id']
+    deck = _make_deck()
+    card = deck.pop()
+    _r().setex(f'game:hl:{user_id}', 3600, json.dumps({
+        'deck': deck, 'current': card, 'streak': 0
+    }))
+    return jsonify({'card': card, 'streak': 0})
+
+
+def hl_guess(app, session, request):
+    user_id = session['user_id']
+    data    = request.json or {}
+    guess   = data.get('guess')
+    bet     = float(data.get('bet', 10))
+
+    raw = _r().get(f'game:hl:{user_id}')
+    if not raw:
+        return jsonify({'error': 'Sāc jaunu spēli'}), 400
+    state   = json.loads(raw)
+    deck    = state['deck']
+    current = state['current']
+    streak  = state['streak']
+
+    next_card = deck.pop()
+    curr_val  = _card_value(current)
+    next_val  = _card_value(next_card)
+
+    if (guess == 'high' and next_val > curr_val) or \
+       (guess == 'low'  and next_val < curr_val):
+        correct = True
+        streak += 1
+    elif next_val == curr_val:
+        correct = None
+    else:
+        correct = False
+        streak  = 0
+
+    state.update({'deck': deck, 'current': next_card, 'streak': streak})
+    _r().setex(f'game:hl:{user_id}', 3600, json.dumps(state))
+
+    winnings = 0
+    balance  = None
+    if correct is True:
+        multiplier = 1 + streak * 0.5
+        net        = round(bet * multiplier - bet, 2)
+        bal        = _get_balance(app, user_id) + net
+        _set_balance(app, user_id, bal)
+        _record_tx(app, user_id, 'highlow', bet, f'Pareizi! Streak {streak}', net, bal)
+        winnings = net
+        balance  = bal
+    elif correct is False:
+        bal = max(0.0, _get_balance(app, user_id) - bet)
+        _set_balance(app, user_id, bal)
+        _record_tx(app, user_id, 'highlow', bet, 'Nepareizi', -bet, bal)
+        balance = bal
+
+    return jsonify({
+        'next_card': next_card, 'next_value': next_val,
+        'correct': correct, 'streak': streak,
+        'winnings': winnings, 'net': winnings, 'balance': balance
+    })
+
+
+# =============================================================
+#  BINGO  (session → Redis)
+# =============================================================
+
+def bingo_new_card(app, session, request):
+    user_id = session['user_id']
+    bet     = float((request.json or {}).get('bet', 10))
+    bal     = _get_balance(app, user_id)
+    if bet <= 0 or bet > bal:
+        return jsonify({'error': 'Nepareizs likmjums'}), 400
+
+    bal -= bet
+    _set_balance(app, user_id, bal)
+    _record_tx(app, user_id, 'bingo', bet, 'Karte izsniegta', -bet, bal)
+
+    ranges = [(1,15),(16,30),(31,45),(46,60),(61,75)]
+    card = []
+    for lo, hi in ranges:
+        card.append(random.sample(range(lo, hi+1), 5))
+    card_t = [[card[col][row] for col in range(5)] for row in range(5)]
+    card_t[2][2] = 'FREE'
+
+    _r().setex(f'game:bingo:{user_id}', 7200, json.dumps({
+        'card': card_t, 'bet': bet, 'called': []
+    }))
+    return jsonify({'card': card_t, 'balance': round(bal, 2)})
+
+
+def bingo_call(app, session, request):
+    user_id = session['user_id']
+    raw = _r().get(f'game:bingo:{user_id}')
+    if not raw:
+        return jsonify({'error': 'Nav aktīvas spēles'}), 400
+    state  = json.loads(raw)
+    card   = state['card']
+    bet    = float(state['bet'])
+    called = state['called']
+
+    remaining = [n for n in range(1, 76) if n not in called]
+    if not remaining:
+        return jsonify({'error': 'Visi skaitļi izsaukti'}), 400
+
+    new_num = random.choice(remaining)
+    called.append(new_num)
+    called_set = set(called)
+
+    def _bingo(c, cs):
+        for row in c:
+            if all(v == 'FREE' or v in cs for v in row): return True
+        for col in range(5):
+            if all(c[r][col] == 'FREE' or c[r][col] in cs for r in range(5)): return True
+        if all(c[i][i] == 'FREE' or c[i][i] in cs for i in range(5)): return True
+        if all(c[i][4-i] == 'FREE' or c[i][4-i] in cs for i in range(5)): return True
+        return False
+
+    has_bingo = _bingo(card, called_set)
+    winnings  = 0
+    balance   = None
+
+    if has_bingo:
+        multiplier = max(2, 30 - len(called))
+        winnings   = round(bet * multiplier, 2)
+        bal        = _get_balance(app, user_id) + winnings
+        _set_balance(app, user_id, bal)
+        _record_tx(app, user_id, 'bingo', bet, f'BINGO! {len(called)} izsaukumi x{multiplier}', winnings, bal)
+        balance = bal
+        _r().delete(f'game:bingo:{user_id}')
+    else:
+        state['called'] = called
+        _r().setex(f'game:bingo:{user_id}', 7200, json.dumps(state))
+
+    return jsonify({
+        'number': new_num, 'called': called,
+        'bingo': has_bingo, 'winnings': winnings,
+        'balance': round(balance, 2) if balance is not None else None
     })
 
 
