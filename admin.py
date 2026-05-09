@@ -545,13 +545,13 @@ def api_daily_bonus():
         conn, user_id, 'daily', 0,
         f'Dienas bonuss +{DAILY_BONUS_AMOUNT}', DAILY_BONUS_AMOUNT, balance
     )
-    cur2 = conn.cursor()
-    cur2.execute(
-        """INSERT INTO wallet_log (user_id, delta, reason, balance_after)
-           VALUES (%s, %s, %s, %s)""",
-        (user_id, DAILY_BONUS_AMOUNT, 'daily_bonus', round(balance, 2))
-    )
-    cur2.close()
+    # cur2 = conn.cursor()
+    # cur2.execute(
+    #     """INSERT INTO wallet_log (user_id, delta, reason, balance_after)
+    #        VALUES (%s, %s, %s, %s)""",
+    #     (user_id, DAILY_BONUS_AMOUNT, 'daily_bonus', round(balance, 2))
+    # )
+    # cur2.close()
     conn.commit()   
 
     redis.setex(key, 86400, '1')
@@ -897,6 +897,14 @@ def bingo_new_card():
         conn.close()
         return jsonify({"error": "Nepareizs likmjums"}), 400
 
+    # Deduct bet immediately — loss is the default until bingo is hit
+    balance -= bet
+    cur = conn.cursor()
+    cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
+    record_transaction(conn, user_id, 'bingo', bet, 'Karte izsniegta (zaudējums)', -bet, balance)
+    conn.commit()
+    cur.close()
+
     ranges = [(1,15),(16,30),(31,45),(46,60),(61,75)]
     card = []
     for col_range in ranges:
@@ -909,11 +917,14 @@ def bingo_new_card():
     session['bingo_bet'] = bet
     session['bingo_called'] = []
     conn.close()
-    return jsonify({"card": card_t})
+    return jsonify({"card": card_t, "balance": round(balance, 2)})
 
 @app.route('/api/casino/bingo/call', methods=['POST'])
 @login_required
 def bingo_call():
+    conn = get_db_connection()
+    balance = get_or_create_balance(conn, user_id)
+    conn.close()
     user_id = session['user_id']
     card = session.get('bingo_card')
     called = session.get('bingo_called', [])
@@ -950,8 +961,7 @@ def bingo_call():
 
     if has_bingo:
         multiplier = max(2, 30 - len(called))
-        winnings = bet * multiplier
-        winnings = winnings - bet
+        winnings = round(bet * multiplier, 2)   # bet already gone, add full payout
         conn = get_db_connection()
         balance = get_or_create_balance(conn, user_id)
         balance += winnings
@@ -968,9 +978,8 @@ def bingo_call():
         "number": new_num,
         "called": called,
         "bingo": has_bingo,
-        "winnings": winnings,
-        "winnings": winnings,
-        "balance": balance
+        "winnings": 0,
+        "balance": round(balance, 2)
     })
 
 # ==========================================
