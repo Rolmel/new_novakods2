@@ -922,9 +922,6 @@ def bingo_new_card():
 @app.route('/api/casino/bingo/call', methods=['POST'])
 @login_required
 def bingo_call():
-    conn = get_db_connection()
-    balance = get_or_create_balance(conn, user_id)
-    conn.close()
     user_id = session['user_id']
     card = session.get('bingo_card')
     called = session.get('bingo_called', [])
@@ -932,6 +929,8 @@ def bingo_call():
     if not card:
         return jsonify({"error": "Nav aktīvas spēles"}), 400
 
+    user_id = session['user_id']
+    card = sessi
     all_nums = list(range(1, 76))
     remaining = [n for n in all_nums if n not in called]
     if not remaining:
@@ -1861,7 +1860,7 @@ def predictions_list():
                COALESCE(SUM(p.stake), 0)   AS total_volume
         FROM prediction_events pe
         LEFT JOIN predictions p ON p.event_id = pe.id
-        WHERE pe.status IN ('open', 'closed')
+        WHERE pe.status IN ('open', 'closed', 'resolved')
         GROUP BY pe.id
         ORDER BY pe.closes_at ASC
     """)
@@ -2268,7 +2267,7 @@ def create_club():
         conn.commit()
         cur.close()
         flash(f"Klubs '{name}' izveidots!", "success")
-        return redirect(url_for('club_detail', club_id=club_id))
+        return redirect(url_for('club_detailed', club_id=club_id))
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
         flash("Kluba nosaukums jau aizņemts!", "error")
@@ -2308,7 +2307,7 @@ def join_club():
     finally:
         cur.close()
         conn.close()
-    return redirect(url_for('club_detail', club_id=club['id']))
+    return redirect(url_for('club_detailed', club_id=club['id']))
  
  
 @app.route('/clubs/<int:club_id>/leave', methods=['POST'])
@@ -2376,7 +2375,7 @@ def club_detail(club_id):
     is_owner  = (club['owner_id'] == user_id)
     cur.close()
     conn.close()
-    return render_template('club_detail.html',
+    return render_template('club_detailed.html',
                            club=dict(club),
                            members=members,
                            is_member=is_member,
@@ -2384,5 +2383,6 @@ def club_detail(club_id):
 
 
 if __name__ == '__main__':
+    init_db()
     init_redis()
     socketio.run(app, debug=False, host='0.0.0.0', port=5000)
