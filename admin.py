@@ -14,6 +14,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import psycopg2
 import psycopg2.extras
+from dotenv import load_dotenv
+load_dotenv()
 
 # --- KONFIGURĀCIJA ---
 
@@ -36,9 +38,11 @@ LOGIN_WINDOW       = 300
 login_attempts = {}
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
-app.secret_key = os.environ.get('SECRET_KEY', '12039ijojij0djwa98djjawjdwa98jdaw98dj98jd92j98jd8aj29dj2a98j98aj9dja0dajjijsijdlkakcnkjznndj29ejekjkjoma3tonvaw98va3oirhv3roiaw3vr98lislkc98y332kmf92ks92ka292kjl8s3l9uovj3nmu8m8uy3oaro87t3roanyvlrvhkjvmi8cw38r9mbhuhims4esxruit76tt878y8y898v32yr982mux32is')
-app.config['SESSION_COOKIE_HTTPONLY'] = True
+socketio = SocketIO(app, cors_allowed_origins=os.environ.get('ALLOWED_ORIGIN', 'http://localhost:5000'))
+_secret = os.environ.get('SECRET_KEY')
+if not _secret:
+    raise RuntimeError('SECRET_KEY environment variable is not set')
+app.secret_key = _secretapp.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400
 
@@ -48,9 +52,10 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 
 # --- DATABASE (PostgreSQL) ---
 def get_db_connection():
-    conn = psycopg2.connect(
-        os.environ.get('DATABASE_URL', 'postgresql://rolmel:yourpassword@localhost/novakods')
-    )
+    _db_url = os.environ.get('DATABASE_URL')
+    if not _db_url:
+        raise RuntimeError('DATABASE_URL environment variable is not set')
+    conn = psycopg2.connect(_db_url)
     conn.autocommit = False
     return conn
 
@@ -1046,21 +1051,27 @@ def poker_rank(hand):
 
 POKER_PAYOUTS = {8: 50, 7: 25, 6: 9, 5: 6, 4: 4, 3: 3, 2: 2, 1: 1, 0: 0}
 
-@app.route('/casino/poker')
+@app.route('/casino/videopoker')
 @login_required
-def poker():
+def video_poker():
     user_id = session['user_id']
     conn = get_db_connection()
     balance = get_or_create_balance(conn, user_id)
     conn.close()
-    return render_template('casino_poker.html', balance=balance)
+    return render_template('casino_videopoker.html', balance=balance)
 
-@app.route('/api/casino/poker/deal', methods=['POST'])
+# Keep old URL working
+@app.route('/casino/poker')
+@login_required
+def poker_redirect():
+    return redirect(url_for('video_poker'))
+
+@app.route('/api/casino/videopoker/deal', methods=['POST'])
 @login_required
 def api_poker_deal():
     return poker_deal(app, session, request)
 
-@app.route('/api/casino/poker/draw', methods=['POST'])
+@app.route('/api/casino/videopoker/draw', methods=['POST'])
 @login_required
 def api_poker_draw():
     return poker_draw(app, session, request)
@@ -1485,8 +1496,15 @@ def holdem_watch_table(data):
     tid = int(data.get('table_id', 1))
     join_room(f'htable_{tid}')
     table = _HOLDEM_TABLES.get(tid)
-    if table:
-        emit('holdem_state', _public_state(table))
+    if not table:
+        return
+    emit('holdem_state', _public_state(table))
+    # Re-send hole cards if this player has an active hand
+    uid = session.get('user_id')
+    if uid and uid in table['players']:
+        p = table['players'][uid]
+        if p.get('cards') and not p['folded']:
+            emit('holdem_private_cards', {'cards': p['cards']})
 
 @socketio.on('holdem_unwatch_table')
 def holdem_unwatch_table(data):

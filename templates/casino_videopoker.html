@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}🃏 Video Poker{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:560px; margin:0 auto; padding:30px 20px; text-align:center; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); }
+.machine {
+  background:linear-gradient(145deg,#1a1a2e,#16162a);
+  border:3px solid var(--gold); border-radius:24px;
+  padding:30px; margin:20px 0;
+  box-shadow:0 0 40px #f5c84222;
+}
+.balance-display { color:var(--gold); font-size:1.3rem; margin-bottom:16px; font-weight:600; }
+.cards { display:flex; gap:10px; justify-content:center; margin:20px 0; }
+.card {
+  width:72px; height:100px; border-radius:10px; background:#fff;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  font-size:1.1rem; font-weight:700; color:#111; cursor:pointer;
+  box-shadow:3px 4px 14px rgba(0,0,0,.6); position:relative;
+  transition:transform .15s;
+}
+.card.red { color:#cc0000; }
+.card.held { transform:translateY(-12px); }
+.hold-label {
+  position:absolute; bottom:-22px; left:50%; transform:translateX(-50%);
+  font-size:0.65rem; font-weight:700; color:var(--gold); white-space:nowrap;
+}
+.card.empty { background:#0a0a14; border:2px dashed #333; box-shadow:none; cursor:default; }
+.bet-control { display:flex; align-items:center; justify-content:center; gap:12px; margin:16px 0; }
+.bet-control button {
+  width:36px; height:36px; background:#1a1a2e;
+  border:1px solid var(--gold); color:var(--gold);
+  border-radius:8px; font-size:1.2rem; cursor:pointer;
+}
+.deal-btn, .draw-btn {
+  width:100%; padding:16px; border:none; border-radius:12px;
+  font-family:'Rajdhani',sans-serif; font-size:1.4rem; font-weight:700;
+  cursor:pointer; margin-top:8px;
+  background:linear-gradient(135deg,#f5c842,#e6a800); color:#000;
+}
+.draw-btn { background:linear-gradient(135deg,#00e676,#00b34a); color:#000; }
+.deal-btn:disabled, .draw-btn:disabled { opacity:.4; cursor:not-allowed; }
+.result-msg {
+  padding:14px; border-radius:10px; font-size:1.2rem; font-weight:700;
+  margin:14px 0; min-height:50px;
+}
+.win  { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.loss { background:#ff174422; border:1px solid var(--red); color:#ff8888; }
+.neutral { background:#1a1a24; border:1px solid #333; color:#888; }
+.paytable { background:#0a0a14; border-radius:12px; padding:16px; margin-top:20px; text-align:left; }
+.paytable h3 { color:var(--gold); text-align:center; font-size:.9rem; margin:0 0 10px; }
+.pay-row { display:flex; justify-content:space-between; padding:4px 0; font-size:.85rem; border-bottom:1px solid #1a1a24; }
+.back-link { color:var(--gold); text-decoration:none; display:inline-block; margin-bottom:10px; }
+</style>
+
+<div class="page">
+  <a href="/casino" class="back-link">← Atpakaļ</a>
+  <h1>🃏 Video Poker</h1>
+  <div class="machine">
+    <div class="balance-display">💰 <span id="balance">{{ "%.2f"|format(balance) }}</span></div>
+    <div class="cards" id="cards">
+      <div class="card empty"></div>
+      <div class="card empty"></div>
+      <div class="card empty"></div>
+      <div class="card empty"></div>
+      <div class="card empty"></div>
+    </div>
+    <div class="bet-control">
+      <button onclick="changeBet(-5)">−</button>
+      <span>Likme: <b id="bet-val">10</b></span>
+      <button onclick="changeBet(5)">+</button>
+    </div>
+    <div class="result-msg neutral" id="result-msg">Spied "Dalīt" lai sāktu!</div>
+    <button class="deal-btn" id="deal-btn" onclick="deal()">🃏 Dalīt</button>
+    <button class="draw-btn" id="draw-btn" onclick="draw()" style="display:none">🔄 Ņemt jaunas</button>
+  </div>
+  <div class="paytable">
+    <h3>📋 Izmaksu tabula</h3>
+    <div class="pay-row"><span>Straight Flush</span><span>x50</span></div>
+    <div class="pay-row"><span>Four of a Kind</span><span>x25</span></div>
+    <div class="pay-row"><span>Full House</span><span>x9</span></div>
+    <div class="pay-row"><span>Flush</span><span>x6</span></div>
+    <div class="pay-row"><span>Straight</span><span>x4</span></div>
+    <div class="pay-row"><span>Three of a Kind</span><span>x3</span></div>
+    <div class="pay-row"><span>Two Pair</span><span>x2</span></div>
+    <div class="pay-row"><span>Pair</span><span>x1</span></div>
+  </div>
+</div>
+
+<script>
+let bet  = 10;
+let held = [false, false, false, false, false];
+
+function changeBet(d) {
+  bet = Math.max(1, Math.min(parseFloat(document.getElementById('balance').textContent) || 9999, bet + d));
+  document.getElementById('bet-val').textContent = bet;
+}
+
+function renderCard(el, card) {
+  const red = ['♥','♦'].includes(card.suit);
+  el.className = 'card' + (red ? ' red' : '');
+  el.innerHTML = `<span>${card.rank}</span><span>${card.suit}</span>`;
+}
+
+async function deal() {
+  held = [false, false, false, false, false];
+  const res  = await fetch('/api/casino/videopoker/deal', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bet})
+  });
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+
+  document.getElementById('balance').textContent = data.balance.toFixed(2);
+  const cardEls = document.querySelectorAll('#cards .card, #cards .card.empty');
+  // re-query after potential class changes
+  const container = document.getElementById('cards');
+  container.innerHTML = '';
+  data.hand.forEach((c, i) => {
+    const div = document.createElement('div');
+    renderCard(div, c);
+    div.addEventListener('click', () => toggleHold(i));
+    container.appendChild(div);
+  });
+
+  document.getElementById('result-msg').className = 'result-msg neutral';
+  document.getElementById('result-msg').textContent = 'Klikšķini uz kartēm ko paturēt, tad spiedi "Ņemt jaunas"';
+  document.getElementById('deal-btn').style.display = 'none';
+  document.getElementById('draw-btn').style.display = 'block';
+}
+
+function toggleHold(i) {
+  held[i] = !held[i];
+  const cards = document.querySelectorAll('#cards .card');
+  cards[i].classList.toggle('held', held[i]);
+  let label = cards[i].querySelector('.hold-label');
+  if (held[i]) {
+    if (!label) { label = document.createElement('span'); label.className = 'hold-label'; cards[i].appendChild(label); }
+    label.textContent = 'PATURĒT';
+  } else {
+    if (label) label.remove();
+  }
+}
+
+async function draw() {
+  const discard = held.map((h, i) => h ? -1 : i).filter(i => i >= 0);
+  const res  = await fetch('/api/casino/videopoker/draw', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({discard})
+  });
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+
+  const container = document.getElementById('cards');
+  container.innerHTML = '';
+  data.hand.forEach(c => {
+    const div = document.createElement('div');
+    renderCard(div, c);
+    container.appendChild(div);
+  });
+
+  document.getElementById('balance').textContent = data.balance.toFixed(2);
+  const msg = document.getElementById('result-msg');
+  if (data.net > 0) {
+    msg.className = 'result-msg win';
+    msg.textContent = `🎉 ${data.rank}! x${data.multiplier} → +${data.winnings.toFixed(2)} coins`;
+  } else {
+    msg.className = 'result-msg loss';
+    msg.textContent = `😞 ${data.rank}. Neveiksmīgi šoreiz.`;
+  }
+  document.getElementById('draw-btn').style.display = 'none';
+  document.getElementById('deal-btn').style.display = 'block';
+  held = [false, false, false, false, false];
+  bet = Math.min(bet, data.balance);
+  document.getElementById('bet-val').textContent = bet;
+}
+</script>
+{% endblock %}
