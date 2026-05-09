@@ -546,17 +546,14 @@ def api_daily_bonus():
         "UPDATE wallets SET balance = %s WHERE user_id = %s",
         (round(balance, 2), user_id)
     )
-    record_transaction(
-        conn, user_id, 'daily', 0,
-        f'Dienas bonuss +{DAILY_BONUS_AMOUNT}', DAILY_BONUS_AMOUNT, balance
+
+    cur2 = conn.cursor()
+    cur2.execute(
+        """INSERT INTO wallet_log (user_id, delta, reason, balance_after)
+           VALUES (%s, %s, %s, %s)""",
+        (user_id, DAILY_BONUS_AMOUNT, 'daily_bonus', round(balance, 2))
     )
-    # cur2 = conn.cursor()
-    # cur2.execute(
-    #     """INSERT INTO wallet_log (user_id, delta, reason, balance_after)
-    #        VALUES (%s, %s, %s, %s)""",
-    #     (user_id, DAILY_BONUS_AMOUNT, 'daily_bonus', round(balance, 2))
-    # )
-    # cur2.close()
+    cur2.close()
     conn.commit()   
 
     redis.setex(key, 86400, '1')
@@ -593,6 +590,19 @@ def get_or_create_balance(conn, user_id):
         return 1000.0
     cur.close()
     return float(row['balance'])
+
+def log_wallet(conn, user_id, delta, reason, ref_id=None):
+    """Write any balance change to wallet_log. Use for non-casino credits (daily, refunds, etc.)"""
+    cur = conn.cursor()
+    cur.execute("SELECT balance FROM wallets WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    balance_after = float(row[0]) if row else 0.0
+    cur.execute(
+        """INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (user_id, round(delta, 2), reason, ref_id, round(balance_after, 2))
+    )
+    cur.close()
 
 def record_transaction(conn, user_id, game, bet, result, winnings, balance_after):
     cur = conn.cursor()
@@ -1878,22 +1888,22 @@ def predictions_list():
     positions = {r['event_id']: dict(r) for r in cur.fetchall()}
 
     events = [dict(e) for e in events]
-        event_ids = [e['id'] for e in events]
-        options_by_event = {}
-        if event_ids:
-            cur.execute("""
-                SELECT po.event_id, po.id, po.label,
-                    COALESCE(pv.total_stake, 0)  AS volume,
-                    COALESCE(pv.backer_count, 0) AS backers
-                FROM prediction_options po
-                LEFT JOIN prediction_volume pv ON pv.option_id = po.id
-                WHERE po.event_id = ANY(%s)
-                ORDER BY po.event_id, po.id
-            """, (event_ids,))
-            for o in cur.fetchall():
-                options_by_event.setdefault(o['event_id'], []).append(dict(o))
-        for e in events:
-            e['options'] = options_by_event.get(e['id'], [])
+    event_ids = [e['id'] for e in events]
+    options_by_event = {}
+    if event_ids:
+        cur.execute("""
+            SELECT po.event_id, po.id, po.label,
+                COALESCE(pv.total_stake, 0)  AS volume,
+                COALESCE(pv.backer_count, 0) AS backers
+            FROM prediction_options po
+            LEFT JOIN prediction_volume pv ON pv.option_id = po.id
+            WHERE po.event_id = ANY(%s)
+            ORDER BY po.event_id, po.id
+        """, (event_ids,))
+        for o in cur.fetchall():
+            options_by_event.setdefault(o['event_id'], []).append(dict(o))
+    for e in events:
+        e['options'] = options_by_event.get(e['id'], [])
 
         balance = get_or_create_balance(conn, session['user_id'])
         cur.close()
