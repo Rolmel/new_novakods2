@@ -125,7 +125,7 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
         <button class="add-opt-btn" onclick="addOption()" style="margin-top:6px;width:100%;">+ Pievienot opciju</button>
       </div>
       <div>
-        <button class="create-submit" onclick="createEvent()">🚀 Izveidot</button>
+        <button class="create-submit" onclick="submitPrediction()">🚀 Izveidot</button>
         <div class="msg-box" id="create-msg"></div>
       </div>
     </div>
@@ -205,7 +205,7 @@ function addOption() {
   list.appendChild(div);
 }
 
-async function createEvent() {
+async function submitPrediction() {
   const title   = document.getElementById('cf-title').value.trim();
   const desc    = document.getElementById('cf-desc').value.trim();
   const cat     = document.getElementById('cf-cat').value;

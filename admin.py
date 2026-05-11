@@ -2007,7 +2007,7 @@ def prediction_detail(event_id):
     balance = get_or_create_balance(conn, session['user_id'])
     cur.close()
     conn.close()
-    return render_template('prediction_detail.html',
+    return render_template('prediction_detailed.html',
                            event=dict(event),
                            options=[dict(o) for o in options],
                            my_position=dict(my_position) if my_position else None,

@@ -1,0 +1,681 @@
+{% extends "base.html" %}
+{% block title %}⚙️ Admin Panel{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap');
+:root {
+  --bg:      #08080f;
+  --bg1:     #0f0f1a;
+  --bg2:     #141422;
+  --border:  #1e1e32;
+  --border2: #2a2a44;
+  --gold:    #f5c842;
+  --green:   #00e676;
+  --red:     #ff3d5a;
+  --blue:    #4dabf5;
+  --purple:  #b57bee;
+  --text:    #e2e2f0;
+  --muted:   #555570;
+  --radius:  10px;
+  --mono:    'JetBrains Mono', monospace;
+  --sans:    'DM Sans', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); margin: 0; }
+
+/* ── Layout ── */
+.adm { max-width: 1300px; margin: 0 auto; padding: 20px 16px 60px; }
+.adm-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 28px; flex-wrap: wrap; gap: 12px;
+}
+.adm-title {
+  font-family: var(--mono); font-size: 1.3rem; font-weight: 700;
+  color: var(--gold); letter-spacing: 1px;
+}
+.refresh-badge {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg1); border: 1px solid var(--border2);
+  border-radius: 20px; padding: 5px 14px;
+  font-family: var(--mono); font-size: 0.75rem; color: var(--muted);
+}
+.refresh-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+  animation: blink 2s ease infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+/* ── Stats row ── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px; margin-bottom: 28px;
+}
+.stat-card {
+  background: var(--bg1); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 18px;
+  position: relative; overflow: hidden;
+  transition: border-color .2s;
+}
+.stat-card:hover { border-color: var(--border2); }
+.stat-card::after {
+  content: '';
+  position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+  background: var(--accent, var(--gold));
+  opacity: .5;
+}
+.stat-val {
+  font-family: var(--mono); font-size: 1.7rem; font-weight: 700;
+  color: var(--accent, var(--gold)); line-height: 1;
+  transition: all .3s ease;
+}
+.stat-lbl { font-size: 0.72rem; color: var(--muted); margin-top: 6px; text-transform: uppercase; letter-spacing: .5px; }
+
+/* ── Tabs ── */
+.tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
+.tab {
+  padding: 7px 18px; border-radius: 8px; font-family: var(--mono);
+  font-size: 0.8rem; cursor: pointer; border: 1px solid var(--border);
+  background: var(--bg1); color: var(--muted); transition: all .15s;
+}
+.tab.active { background: var(--bg2); border-color: var(--border2); color: var(--text); }
+.tab:hover  { color: var(--text); border-color: var(--border2); }
+
+/* ── Table wrapper ── */
+.panel {
+  background: var(--bg1); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden; margin-bottom: 20px;
+}
+.panel-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 18px; border-bottom: 1px solid var(--border);
+  flex-wrap: wrap; gap: 10px;
+}
+.panel-bar-title { font-family: var(--mono); font-size: 0.82rem; color: var(--muted); letter-spacing: .5px; }
+.search-inp {
+  padding: 6px 12px; background: var(--bg); border: 1px solid var(--border2);
+  border-radius: 8px; color: var(--text); font-family: var(--sans); font-size: 0.85rem;
+  width: 200px; transition: border-color .2s;
+}
+.search-inp:focus { outline: none; border-color: var(--gold); }
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th {
+  padding: 10px 14px; text-align: left; color: var(--muted);
+  font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: .8px; border-bottom: 1px solid var(--border);
+  font-weight: 600; white-space: nowrap;
+}
+td { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.03); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,.015); }
+.mono { font-family: var(--mono); }
+
+/* ── Badges ── */
+.badge {
+  display: inline-block; padding: 2px 9px; border-radius: 20px;
+  font-size: 0.7rem; font-weight: 600; white-space: nowrap;
+}
+.badge-admin  { background:#f5c84218; border:1px solid var(--gold); color:var(--gold); }
+.badge-user   { background:#4dabf518; border:1px solid var(--blue); color:var(--blue); }
+.badge-open   { background:#00e67618; border:1px solid var(--green); color:var(--green); }
+.badge-closed { background:#ff3d5a18; border:1px solid var(--red); color:var(--red); }
+.badge-resolved { background:#f5c84218; border:1px solid var(--gold); color:var(--gold); }
+.badge-win  { color: var(--green); font-family: var(--mono); font-weight: 700; }
+.badge-loss { color: var(--red);   font-family: var(--mono); font-weight: 700; }
+
+/* ── Buttons ── */
+.btn-row { display: flex; gap: 5px; }
+.abtn {
+  padding: 5px 11px; border-radius: 6px; border: none;
+  font-family: var(--sans); font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; transition: all .12s; white-space: nowrap;
+}
+.abtn-edit   { background:#4dabf520; color:var(--blue); border:1px solid #4dabf544; }
+.abtn-edit:hover { background:#4dabf540; }
+.abtn-del    { background:#ff3d5a18; color:var(--red); border:1px solid #ff3d5a44; }
+.abtn-del:hover  { background:#ff3d5a30; }
+.abtn-tog    { background:#f5c84218; color:var(--gold); border:1px solid #f5c84244; }
+.abtn-tog:hover  { background:#f5c84230; }
+.abtn-green  { background:#00e67620; color:var(--green); border:1px solid #00e67644; }
+.abtn-green:hover { background:#00e67630; }
+
+/* ── Modal ── */
+.modal-bg {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.72); backdrop-filter: blur(6px);
+  z-index: 200; align-items: center; justify-content: center;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: var(--bg1); border: 1px solid var(--border2);
+  border-radius: 14px; padding: 28px; width: min(460px, 94vw);
+  max-height: 90vh; overflow-y: auto;
+  animation: mopen .18s ease;
+}
+@keyframes mopen { from{opacity:0;transform:scale(.96)} to{opacity:1;transform:scale(1)} }
+.modal h3 { font-family: var(--mono); color: var(--gold); margin: 0 0 18px; font-size: 1rem; }
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+.field input, .field select, .field textarea {
+  width: 100%; padding: 9px 12px; background: var(--bg);
+  border: 1px solid var(--border2); border-radius: 8px;
+  color: var(--text); font-family: var(--sans); font-size: 0.9rem;
+  transition: border-color .2s;
+}
+.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--gold); }
+.modal-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.mbtn {
+  padding: 9px 20px; border: none; border-radius: 8px;
+  font-family: var(--sans); font-size: 0.9rem; font-weight: 600; cursor: pointer;
+}
+.mbtn-save   { background: linear-gradient(135deg,#f5c842,#e6a800); color:#000; }
+.mbtn-cancel { background: var(--bg2); color: var(--muted); border: 1px solid var(--border2); }
+.mbtn-danger { background: var(--red); color: #fff; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px; z-index: 300;
+  background: var(--bg1); border-radius: 10px; padding: 13px 20px;
+  font-size: 0.88rem; font-weight: 600; display: none;
+  box-shadow: 0 8px 30px rgba(0,0,0,.5); min-width: 220px;
+  animation: tslide .2s ease;
+}
+@keyframes tslide { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+.toast.ok  { border: 1px solid var(--green); color: var(--green); }
+.toast.err { border: 1px solid var(--red);   color: var(--red); }
+
+/* ── Countdown ring ── */
+.ctimer {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
+}
+.ctimer span { color: var(--text); font-weight: 700; }
+
+/* ── Empty states ── */
+.empty-row td { text-align: center; padding: 40px; color: var(--muted); font-style: italic; }
+
+/* ── Tab sections ── */
+.tab-section { display: none; }
+.tab-section.active { display: block; }
+
+/* ── Danger zone ── */
+.danger-zone {
+  background: #1a0a0e; border: 1px solid #3a1020;
+  border-radius: var(--radius); padding: 20px 22px; margin-top: 24px;
+}
+.danger-zone h3 { font-family: var(--mono); color: var(--red); margin: 0 0 14px; font-size: 0.85rem; letter-spacing: 1px; }
+.danger-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.dbtn {
+  padding: 9px 18px; background: #2a0a12; border: 1px solid #4a1822;
+  color: var(--red); border-radius: 8px;
+  font-family: var(--sans); font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  transition: all .15s;
+}
+.dbtn:hover { background: #3a0a18; border-color: var(--red); }
+
+.pag { display:flex; gap:6px; padding:12px 18px; align-items:center; }
+.pag button {
+  padding:5px 11px; background:var(--bg2); border:1px solid var(--border2);
+  color:var(--muted); border-radius:6px; cursor:pointer; font-family:var(--mono); font-size:0.75rem;
+  transition:all .15s;
+}
+.pag button.cur, .pag button:hover { color:var(--text); border-color:var(--gold); }
+.pag .pag-info { font-family:var(--mono); font-size:0.72rem; color:var(--muted); margin-left:auto; }
+</style>
+
+<div class="adm">
+  <div class="adm-head">
+    <div class="adm-title">⚙️ ADMIN PANEL</div>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+      <div class="ctimer">Auto-refresh <span id="countdown">15</span>s</div>
+      <div class="refresh-badge">
+        <div class="refresh-dot"></div>
+        <span id="last-refresh">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="stats-row" id="stats-row">
+    <div class="stat-card" style="--accent:var(--blue)">
+      <div class="stat-val" id="s-users">{{ stats.users }}</div>
+      <div class="stat-lbl">Total Users</div>
+    </div>
+    <div class="stat-card" style="--accent:var(--gold)">
+      <div class="stat-val" id="s-bets">{{ stats.bets_today }}</div>
+      <div class="stat-lbl">Bets Today</div>
+    </div>
+    <div class="stat-card" style="--accent:var(--green)">
+      <div class="stat-val" id="s-balance">{{ stats.total_balance }}</div>
+      <div class="stat-lbl">Coins in System</div>
+    </div>
+    <div class="stat-card" style="--accent:var(--purple)">
+      <div class="stat-val" id="s-predictions">{{ stats.open_predictions }}</div>
+      <div class="stat-lbl">Open Predictions</div>
+    </div>
+    <div class="stat-card" style="--accent:var(--red)">
+      <div class="stat-val" id="s-files">{{ stats.files }}</div>
+      <div class="stat-lbl">Stored Files</div>
+    </div>
+    <div class="stat-card" style="--accent:#ff9800">
+      <div class="stat-val" id="s-messages">{{ stats.messages }}</div>
+      <div class="stat-lbl">Chat Messages</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('users', this)">👤 Users</div>
+    <div class="tab" onclick="switchTab('transactions', this)">🎰 Transactions</div>
+    <div class="tab" onclick="switchTab('predictions', this)">📈 Predictions</div>
+    <div class="tab" onclick="switchTab('canvas', this)">🎨 Canvas</div>
+  </div>
+
+  <!-- ══════════ USERS TAB ══════════ -->
+  <div class="tab-section active" id="tab-users">
+    <div class="panel">
+      <div class="panel-bar">
+        <span class="panel-bar-title">USERS</span>
+        <input class="search-inp" id="user-search" placeholder="Search username…" oninput="filterTable('user-tbody', this.value, 0)">
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>ID</th><th>Username</th><th>Role</th><th>Balance</th><th>Games</th><th>Joined</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="user-tbody">
+            {% for u in users %}
+            <tr id="urow-{{ u.id }}">
+              <td class="mono" style="color:var(--muted)">{{ u.id }}</td>
+              <td><strong>{{ u.username }}</strong></td>
+              <td>
+                <span class="badge {{ 'badge-admin' if u.is_admin else 'badge-user' }}">
+                  {{ 'admin' if u.is_admin else 'user' }}
+                </span>
+              </td>
+              <td class="mono" style="color:var(--gold)">{{ "%.0f"|format(u.balance or 0) }}</td>
+              <td class="mono">{{ u.game_count or 0 }}</td>
+              <td style="color:var(--muted);font-size:0.78rem">{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '—' }}</td>
+              <td>
+                <div class="btn-row">
+                  <button class="abtn abtn-edit" onclick="openEditUser({{ u.id }}, '{{ u.username }}', {{ u.balance or 0 }})">✏ Edit</button>
+                  <button class="abtn abtn-tog" onclick="toggleAdmin({{ u.id }}, {{ 'true' if u.is_admin else 'false' }})">
+                    {{ '⬇ Demote' if u.is_admin else '⬆ Promote' }}
+                  </button>
+                  <button class="abtn abtn-del" onclick="confirmDelete('user', {{ u.id }}, '{{ u.username }}')">🗑</button>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr class="empty-row"><td colspan="7">No users found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ TRANSACTIONS TAB ══════════ -->
+  <div class="tab-section" id="tab-transactions">
+    <div class="panel">
+      <div class="panel-bar">
+        <span class="panel-bar-title">RECENT TRANSACTIONS</span>
+        <input class="search-inp" id="tx-search" placeholder="Search user / game…" oninput="filterTable('tx-tbody', this.value, 0)">
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>User</th><th>Game</th><th>Bet</th><th>Result</th><th>Net</th><th>Balance After</th><th>Time</th><th></th>
+          </tr></thead>
+          <tbody id="tx-tbody">
+            {% for t in transactions %}
+            <tr id="txrow-{{ t.id }}">
+              <td><strong>{{ t.username }}</strong></td>
+              <td><span class="badge badge-user mono">{{ t.game }}</span></td>
+              <td class="mono">{{ "%.0f"|format(t.bet) }}</td>
+              <td style="font-size:0.78rem;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.result }}</td>
+              <td class="{{ 'badge-win' if t.winnings >= 0 else 'badge-loss' }}">{{ "%+.0f"|format(t.winnings) }}</td>
+              <td class="mono" style="color:var(--gold)">{{ "%.0f"|format(t.balance_after) }}</td>
+              <td style="color:var(--muted);font-size:0.75rem">{{ t.created_at.strftime('%d.%m %H:%M') if t.created_at else '—' }}</td>
+              <td><button class="abtn abtn-del" onclick="confirmDelete('transaction', {{ t.id }}, '{{ t.game }} #{{ t.id }}')">🗑</button></td>
+            </tr>
+            {% else %}
+            <tr class="empty-row"><td colspan="8">No transactions yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="pag" id="tx-pag">
+        <span class="pag-info">Showing last {{ transactions|length }} records</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ PREDICTIONS TAB ══════════ -->
+  <div class="tab-section" id="tab-predictions">
+    <div class="panel">
+      <div class="panel-bar">
+        <span class="panel-bar-title">PREDICTION EVENTS</span>
+        <input class="search-inp" id="pred-search" placeholder="Search title…" oninput="filterTable('pred-tbody', this.value, 0)">
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>ID</th><th>Title</th><th>Category</th><th>Status</th><th>Volume</th><th>Closes</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="pred-tbody">
+            {% for e in predictions %}
+            <tr id="predrow-{{ e.id }}">
+              <td class="mono" style="color:var(--muted)">{{ e.id }}</td>
+              <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.title }}</td>
+              <td><span class="badge badge-user">{{ e.category }}</span></td>
+              <td><span class="badge badge-{{ e.status }}">{{ e.status }}</span></td>
+              <td class="mono" style="color:var(--gold)">{{ "%.0f"|format(e.total_volume or 0) }}</td>
+              <td style="color:var(--muted);font-size:0.78rem">{{ e.closes_at.strftime('%d.%m.%Y') if e.closes_at else '—' }}</td>
+              <td>
+                <div class="btn-row">
+                  <button class="abtn abtn-edit" onclick="openEditPrediction({{ e.id }}, '{{ e.title|replace("'","\\'")|replace('"', '&quot;') }}', '{{ e.category }}', '{{ e.status }}')">✏ Edit</button>
+                  <button class="abtn abtn-del" onclick="confirmDelete('prediction', {{ e.id }}, '{{ e.title[:30]|replace("'","\\'")|replace('"','&quot;') }}')">🗑</button>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr class="empty-row"><td colspan="7">No predictions yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ CANVAS TAB ══════════ -->
+  <div class="tab-section" id="tab-canvas">
+    <div class="panel">
+      <div class="panel-bar">
+        <span class="panel-bar-title">CANVAS / PIXELWAR</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Rank</th><th>Username</th><th>Pixels</th></tr></thead>
+          <tbody>
+            {% for s in canvas_scores %}
+            <tr>
+              <td class="mono" style="color:var(--muted)">{{ loop.index }}</td>
+              <td><strong>{{ s.username }}</strong></td>
+              <td class="mono" style="color:var(--gold)">{{ s.count }}</td>
+            </tr>
+            {% else %}
+            <tr class="empty-row"><td colspan="3">Canvas is empty.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="danger-zone">
+      <h3>⚠ DANGER ZONE</h3>
+      <div class="danger-actions">
+        <button class="dbtn" onclick="dangerAction('clear_canvas')">🗑 Clear Canvas + Scores</button>
+        <button class="dbtn" onclick="dangerAction('reset_balances')">💰 Reset All Balances to 1000</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit User Modal ── -->
+<div class="modal-bg" id="modal-user">
+  <div class="modal">
+    <h3>✏ Edit User</h3>
+    <input type="hidden" id="eu-id">
+    <div class="field">
+      <label>Username</label>
+      <input type="text" id="eu-username" maxlength="30">
+    </div>
+    <div class="field">
+      <label>Set Balance</label>
+      <input type="number" id="eu-balance" min="0" step="1">
+    </div>
+    <div class="modal-btns">
+      <button class="mbtn mbtn-cancel" onclick="closeModal('modal-user')">Cancel</button>
+      <button class="mbtn mbtn-save" onclick="saveUser()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit Prediction Modal ── -->
+<div class="modal-bg" id="modal-pred">
+  <div class="modal">
+    <h3>✏ Edit Prediction</h3>
+    <input type="hidden" id="ep-id">
+    <div class="field">
+      <label>Title</label>
+      <input type="text" id="ep-title" maxlength="200">
+    </div>
+    <div class="field">
+      <label>Category</label>
+      <select id="ep-cat">
+        <option value="general">General</option>
+        <option value="sports">Sports</option>
+        <option value="crypto">Crypto</option>
+        <option value="politics">Politics</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Status</label>
+      <select id="ep-status">
+        <option value="open">Open</option>
+        <option value="closed">Closed</option>
+        <option value="resolved">Resolved</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+    </div>
+    <div class="modal-btns">
+      <button class="mbtn mbtn-cancel" onclick="closeModal('modal-pred')">Cancel</button>
+      <button class="mbtn mbtn-save" onclick="savePrediction()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Confirm Delete Modal ── -->
+<div class="modal-bg" id="modal-del">
+  <div class="modal">
+    <h3>🗑 Confirm Delete</h3>
+    <input type="hidden" id="del-type">
+    <input type="hidden" id="del-id">
+    <p id="del-msg" style="color:var(--muted);margin:0 0 20px;line-height:1.6"></p>
+    <div class="modal-btns">
+      <button class="mbtn mbtn-cancel" onclick="closeModal('modal-del')">Cancel</button>
+      <button class="mbtn mbtn-danger" onclick="execDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Tab switching ──
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+}
+
+// ── Live filter (client-side, zero server load) ──
+function filterTable(tbodyId, query, colIdx) {
+  const q = query.toLowerCase();
+  document.querySelectorAll('#' + tbodyId + ' tr:not(.empty-row)').forEach(tr => {
+    const cells = tr.querySelectorAll('td');
+    const text  = [...cells].map(td => td.textContent).join(' ').toLowerCase();
+    tr.style.display = text.includes(q) ? '' : 'none';
+  });
+}
+
+// ── Modal helpers ──
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.querySelectorAll('.modal-bg').forEach(bg => {
+  bg.addEventListener('click', e => { if (e.target === bg) bg.classList.remove('open'); });
+});
+
+// ── Toast ──
+let _toastTimer;
+function toast(msg, type='ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = 'toast ' + type; el.style.display = 'block';
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.style.display = 'none', 3000);
+}
+
+// ── Edit User ──
+function openEditUser(id, username, balance) {
+  document.getElementById('eu-id').value = id;
+  document.getElementById('eu-username').value = username;
+  document.getElementById('eu-balance').value = balance;
+  openModal('modal-user');
+}
+async function saveUser() {
+  const id       = document.getElementById('eu-id').value;
+  const username = document.getElementById('eu-username').value.trim();
+  const balance  = parseFloat(document.getElementById('eu-balance').value);
+  if (!username) return;
+  const res  = await fetch('/api/admin/user/' + id, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ username, balance })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast('✅ User updated');
+    closeModal('modal-user');
+    loadStats();
+    setTimeout(() => location.reload(), 800);
+  } else { toast('❌ ' + data.error, 'err'); }
+}
+
+// ── Toggle Admin ──
+async function toggleAdmin(id, isAdmin) {
+  const res  = await fetch('/api/admin/user/' + id + '/toggle_admin', { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) { toast('✅ Role updated'); setTimeout(() => location.reload(), 600); }
+  else toast('❌ ' + data.error, 'err');
+}
+
+// ── Edit Prediction ──
+function openEditPrediction(id, title, cat, status) {
+  document.getElementById('ep-id').value     = id;
+  document.getElementById('ep-title').value  = title;
+  document.getElementById('ep-cat').value    = cat;
+  document.getElementById('ep-status').value = status;
+  openModal('modal-pred');
+}
+async function savePrediction() {
+  const id     = document.getElementById('ep-id').value;
+  const title  = document.getElementById('ep-title').value.trim();
+  const cat    = document.getElementById('ep-cat').value;
+  const status = document.getElementById('ep-status').value;
+  if (!title) return;
+  const res  = await fetch('/api/admin/prediction/' + id, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ title, category: cat, status })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast('✅ Prediction updated');
+    closeModal('modal-pred');
+    setTimeout(() => location.reload(), 800);
+  } else toast('❌ ' + data.error, 'err');
+}
+
+// ── Confirm & Execute Delete ──
+function confirmDelete(type, id, name) {
+  const labels = { user: 'user', transaction: 'transaction', prediction: 'prediction event' };
+  document.getElementById('del-type').value = type;
+  document.getElementById('del-id').value   = id;
+  document.getElementById('del-msg').textContent =
+    `Are you sure you want to delete ${labels[type] || type} "${name}"? This cannot be undone.`;
+  openModal('modal-del');
+}
+async function execDelete() {
+  const type = document.getElementById('del-type').value;
+  const id   = document.getElementById('del-id').value;
+  const res  = await fetch(`/api/admin/${type}/${id}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (data.ok) {
+    toast('🗑 Deleted');
+    closeModal('modal-del');
+    const row = document.getElementById(
+      type === 'user' ? `urow-${id}` :
+      type === 'transaction' ? `txrow-${id}` :
+      `predrow-${id}`
+    );
+    if (row) { row.style.transition = 'opacity .3s'; row.style.opacity = '0'; setTimeout(() => row.remove(), 300); }
+    loadStats();
+  } else toast('❌ ' + data.error, 'err');
+}
+
+// ── Danger actions ──
+async function dangerAction(action) {
+  const msgs = {
+    clear_canvas:     'Clear entire canvas and all pixel scores?',
+    reset_balances:   'Reset ALL user balances to 1000 coins? This cannot be undone.',
+  };
+  if (!confirm(msgs[action] || 'Are you sure?')) return;
+  const res  = await fetch('/api/admin/danger/' + action, { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) toast('✅ ' + data.message); else toast('❌ ' + data.error, 'err');
+}
+
+// ── Lightweight stats polling (no full page reload, minimal DB load) ──
+let _countdown = 15;
+
+async function loadStats() {
+  try {
+    const res  = await fetch('/api/admin/stats');
+    const data = await res.json();
+    if (!data.ok) return;
+    const s = data.stats;
+    const animate = (id, val) => {
+      const el = document.getElementById(id);
+      if (el && el.textContent !== String(val)) {
+        el.style.transform = 'scale(1.08)';
+        el.textContent = val;
+        setTimeout(() => el.style.transform = '', 200);
+      }
+    };
+    animate('s-users',       s.users);
+    animate('s-bets',        s.bets_today);
+    animate('s-balance',     s.total_balance);
+    animate('s-predictions', s.open_predictions);
+    animate('s-files',       s.files);
+    animate('s-messages',    s.messages);
+    document.getElementById('last-refresh').textContent =
+      new Date().toLocaleTimeString('lv-LV', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  } catch(_) {}
+}
+
+function startCountdown() {
+  _countdown = 15;
+  const tick = setInterval(() => {
+    _countdown--;
+    const el = document.getElementById('countdown');
+    if (el) el.textContent = _countdown;
+    if (_countdown <= 0) {
+      clearInterval(tick);
+      loadStats();
+      startCountdown();
+    }
+  }, 1000);
+}
+
+// Kick off after page load
+window.addEventListener('load', () => {
+  startCountdown();
+  // Set initial last-refresh
+  document.getElementById('last-refresh').textContent =
+    new Date().toLocaleTimeString('lv-LV', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+});
+</script>
+{% endblock %}
