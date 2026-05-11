@@ -2030,27 +2030,38 @@ def api_prediction_create():
     if not title or not closes_at or len(options) < 2:
         return jsonify({'error': 'Nepieciešams nosaukums, beigu datums un vismaz 2 opcijas'}), 400
 
-    conn = get_db_connection()
-    cur  = conn.cursor()
-    cur.execute("""
-        INSERT INTO prediction_events (title, description, category, created_by, closes_at)
-        VALUES (%s, %s, %s, %s, %s) RETURNING id
-    """, (title, description, category, session['user_id'], closes_at))
-    event_id = cur.fetchone()[0]
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            INSERT INTO prediction_events (title, description, category, created_by, closes_at)
+            VALUES (%s, %s, %s, %s, %s) RETURNING id
+        """, (title, description, category, session['user_id'], closes_at))
+        event_id = cur.fetchone()[0]
 
-    equal_price = round(1.0 / len(options), 4)
-    for label in options:
-        label = label.strip()[:100]
-        if label:
-            cur.execute("""
-                INSERT INTO prediction_options (event_id, label, price)
-                VALUES (%s, %s, %s)
-            """, (event_id, label, equal_price))
+        equal_price = round(1.0 / len(options), 4)
+        for label in options:
+            label = label.strip()[:100]
+            if label:
+                cur.execute("""
+                    INSERT INTO prediction_options (event_id, label, price)
+                    VALUES (%s, %s, %s)
+                """, (event_id, label, equal_price))
 
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({'ok': True, 'event_id': event_id})
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'ok': True, 'event_id': event_id})
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            conn.close()
+        app.logger.error(f'api_prediction_create error: {e}')
+        return jsonify({'error': f'Datu bāzes kļūda: {str(e)}'}), 500
 
 
 @app.route('/api/predictions/<int:event_id>/bet', methods=['POST'])

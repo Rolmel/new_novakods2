@@ -214,23 +214,39 @@ async function createEvent() {
                     .map(i => i.value.trim()).filter(Boolean);
   const msg = document.getElementById('create-msg');
   msg.style.display = 'block';
+
   if (!title || options.length < 2) {
     msg.className = 'msg-box msg-err';
     msg.textContent = '❌ Nepieciešams nosaukums un vismaz 2 opcijas';
     return;
   }
-  const res = await fetch('/api/predictions/create', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ title, description: desc, category: cat, closes_at: closes, options })
-  });
-  const data = await res.json();
-  if (data.ok) {
-    msg.className = 'msg-box msg-ok';
-    msg.textContent = '✅ Notikums izveidots!';
-    setTimeout(() => location.reload(), 1200);
-  } else {
+  if (!closes) {
     msg.className = 'msg-box msg-err';
-    msg.textContent = '❌ ' + data.error;
+    msg.textContent = '❌ Lūdzu norādi beigu datumu';
+    return;
+  }
+
+  msg.className = 'msg-box';
+  msg.textContent = '⏳ Saglabā...';
+
+  try {
+    const res  = await fetch('/api/predictions/create', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ title, description: desc, category: cat, closes_at: closes, options })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      msg.className = 'msg-box msg-ok';
+      msg.textContent = '✅ Notikums izveidots!';
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      msg.className = 'msg-box msg-err';
+      msg.textContent = '❌ ' + (data.error || 'Nezināma kļūda');
+    }
+  } catch (e) {
+    msg.className = 'msg-box msg-err';
+    msg.textContent = '❌ Servera kļūda — pārbaudī konsoli (F12)';
+    console.error('createEvent error:', e);
   }
 }
 </script>
