@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}🚀 Crash{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:520px; margin:0 auto; padding:30px 20px; text-align:center; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); }
+.mult-display {
+  font-family:'Cinzel Decorative',serif;
+  font-size:4rem; font-weight:700; color:var(--green);
+  margin:20px 0; transition:color .2s;
+  text-shadow:0 0 30px #00e67666;
+}
+.mult-display.crashed { color:var(--red); text-shadow:0 0 30px #ff174466; }
+.machine {
+  background:linear-gradient(145deg,#1a1a2e,#16162a);
+  border:3px solid var(--gold); border-radius:24px;
+  padding:30px; margin:10px 0;
+}
+.phase-badge {
+  display:inline-block; padding:4px 18px; border-radius:20px;
+  font-weight:700; font-size:0.9rem; margin-bottom:16px;
+}
+.phase-waiting { background:#f5c84222; border:1px solid var(--gold); color:var(--gold); }
+.phase-running { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.phase-crashed { background:#ff174422; border:1px solid var(--red); color:var(--red); }
+.bet-row { display:flex; align-items:center; justify-content:center; gap:12px; margin:16px 0; }
+.bet-row button { width:36px;height:36px; background:#1a1a2e; border:1px solid var(--gold); color:var(--gold); border-radius:8px; cursor:pointer; font-size:1.2rem; }
+.action-btn {
+  width:100%; padding:16px; border:none; border-radius:12px;
+  font-family:'Rajdhani',sans-serif; font-size:1.3rem; font-weight:700;
+  cursor:pointer; margin-top:8px; transition:opacity .2s;
+}
+.action-btn:disabled { opacity:.35; cursor:not-allowed; }
+.btn-bet     { background:linear-gradient(135deg,#f5c842,#e6a800); color:#000; }
+.btn-cashout { background:linear-gradient(135deg,#00e676,#00b34a); color:#000; }
+.result-msg { padding:10px; border-radius:8px; margin:10px 0; font-weight:600; min-height:44px; }
+.win     { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.loss    { background:#ff174422; border:1px solid var(--red); color:#ff8888; }
+.neutral { background:#1a1a24; border:1px solid #333; color:#888; }
+.players-list { text-align:left; margin-top:16px; font-size:0.82rem; max-height:120px; overflow-y:auto; }
+.player-row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #111120; }
+.player-row.out { color:#555; }
+.balance-display { color:var(--gold); font-size:1.2rem; font-weight:600; margin-bottom:8px; }
+.back-link { color:var(--gold); text-decoration:none; }
+</style>
+
+<div class="page">
+  <a href="/casino" class="back-link">← Atpakaļ</a>
+  <h1>🚀 Crash</h1>
+  <div class="balance-display">💰 <span id="balance">{{ "%.2f"|format(balance) }}</span></div>
+
+  <div class="machine">
+    <div class="phase-badge phase-waiting" id="phase-badge">⏳ Gaidām nākamo raundi...</div>
+    <div class="mult-display" id="mult">1.00x</div>
+    <div class="result-msg neutral" id="result-msg">Liec likmi nākamajam raundam!</div>
+
+    <div class="bet-row">
+      <button onclick="changeBet(-5)">−</button>
+      <span>Likme: <b id="bet-val">10</b> coins</span>
+      <button onclick="changeBet(5)">+</button>
+    </div>
+
+    <button class="action-btn btn-bet"     id="btn-bet"     onclick="placeBet()">🎯 Likt likmi</button>
+    <button class="action-btn btn-cashout" id="btn-cashout" onclick="cashOut()" disabled>💰 Izņemt</button>
+
+    <div class="players-list" id="players-list"></div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<script>
+const socket = io({ transports: ['websocket', 'polling'] });
+let bet        = 10;
+let inRound    = false;
+let phase      = 'waiting';
+
+function changeBet(d) {
+  const bal = parseFloat(document.getElementById('balance').textContent) || 9999;
+  bet = Math.max(1, Math.min(bal, bet + d));
+  document.getElementById('bet-val').textContent = bet;
+}
+
+function setPhase(p) {
+  phase = p;
+  const badge = document.getElementById('phase-badge');
+  const mult  = document.getElementById('mult');
+  if (p === 'waiting') {
+    badge.className   = 'phase-badge phase-waiting';
+    badge.textContent = '⏳ Nākamais raunds drīz...';
+    mult.className    = 'mult-display';
+    mult.textContent  = '1.00x';
+    document.getElementById('btn-bet').disabled     = false;
+    document.getElementById('btn-cashout').disabled = true;
+  } else if (p === 'running') {
+    badge.className   = 'phase-badge phase-running';
+    badge.textContent = '🚀 Lidojam!';
+    document.getElementById('btn-bet').disabled = true;
+    if (inRound) document.getElementById('btn-cashout').disabled = false;
+  } else if (p === 'crashed') {
+    badge.className   = 'phase-badge phase-crashed';
+    badge.textContent = '💥 Avārija!';
+    mult.className    = 'mult-display crashed';
+    document.getElementById('btn-cashout').disabled = true;
+    document.getElementById('btn-bet').disabled     = true;
+    if (inRound) {
+      showMsg('💥 Avārija! Zaudēji ' + bet + ' coins.', 'loss');
+      inRound = false;
+    }
+  }
+}
+
+function showMsg(text, type) {
+  const el    = document.getElementById('result-msg');
+  el.textContent = text;
+  el.className   = 'result-msg ' + type;
+}
+
+socket.on('crash_phase', d => {
+  setPhase(d.phase);
+  if (d.phase === 'crashed' && d.mult) {
+    document.getElementById('mult').textContent = d.mult.toFixed(2) + 'x';
+  }
+});
+
+socket.on('crash_tick', d => {
+  if (phase === 'running') {
+    document.getElementById('mult').textContent = d.mult.toFixed(2) + 'x';
+  }
+});
+
+socket.on('crash_players', d => {
+  const list = document.getElementById('players-list');
+  list.innerHTML = '';
+  Object.entries(d.players).forEach(([uid, p]) => {
+    const row = document.createElement('div');
+    row.className = 'player-row' + (p.cashed_out ? ' out' : '');
+    row.innerHTML = `<span>${p.name}</span>
+      <span>${p.cashed_out ? '✅ ' + p.cashout_mult + 'x' : p.bet + ' coins'}</span>`;
+    list.appendChild(row);
+  });
+});
+
+socket.on('crash_bet_ok', d => {
+  document.getElementById('balance').textContent = d.balance.toFixed(2);
+  document.getElementById('btn-cashout').disabled = false;
+  inRound = true;
+  showMsg('✅ Likme pieņemta: ' + d.bet + ' coins', 'neutral');
+});
+
+socket.on('crash_cashout_ok', d => {
+  inRound = false;
+  document.getElementById('balance').textContent = d.balance.toFixed(2);
+  document.getElementById('btn-cashout').disabled = true;
+  showMsg('💰 Izmaksāts @ ' + d.mult.toFixed(2) + 'x — +' + d.winnings.toFixed(2) + ' coins!', 'win');
+});
+
+socket.on('crash_error', d => showMsg('❌ ' + d.msg, 'loss'));
+
+function placeBet() {
+  if (phase !== 'waiting') {
+    showMsg('Likmes pieņem tikai starp raundiem!', 'loss');
+    return;
+  }
+  socket.emit('crash_bet', { bet });
+}
+
+function cashOut() {
+  socket.emit('crash_cashout', {});
+}
+</script>
+{% endblock %}

@@ -87,6 +87,11 @@ body { background: var(--dark); color: #e0e0e0; font-family: 'Rajdhani', sans-se
     <div class="game-name">Slots</div>
     <div class="game-desc">Spēlē automātu</div>
   </a>
+  <a href="/casino/crash" class="game-card">
+  <div class="game-icon">🚀</div>
+  <div class="game-name">Crash</div>
+  <div class="game-desc">Izej pirms avārijas!</div>
+</a>
   <a href="/casino/blackjack" class="game-card">
     <div class="game-icon">🃏</div>
     <div class="game-name">Blackjack</div>
@@ -132,15 +137,56 @@ body { background: var(--dark); color: #e0e0e0; font-family: 'Rajdhani', sans-se
 async function claimDaily() {
     const res  = await fetch('/api/daily', { method: 'POST' });
     const data = await res.json();
-    document.getElementById('daily-desc').textContent = data.message;
+    const desc = document.getElementById('daily-desc');
+    const card = document.getElementById('daily-card');
+
+    desc.textContent = data.message;
+
     if (data.ok) {
         document.querySelector('.balance-bar').textContent =
             '💰 ' + parseFloat(data.balance).toFixed(2) + ' coins';
-        document.getElementById('daily-card').style.borderColor = 'var(--green)';
+        card.style.borderColor = 'var(--green)';
+        if (data.streak >= 3) {
+            desc.textContent += ` (${data.streak}🔥)`;
+        }
+        if (data.cosmetic_awarded) {
+            desc.textContent += ` + ${data.cosmetic_awarded}!`;
+        }
     } else {
-        document.getElementById('daily-card').style.opacity = '0.4';
+        card.style.opacity = '0.4';
     }
 }
+</script>
+
+<div id="social-feed" style="max-width:900px;margin:0 auto 24px;padding:0 20px;">
+  <h2 style="font-family:'Cinzel Decorative',serif;color:var(--gold);font-size:1rem;margin-bottom:12px;">
+    🔥 Kluba aktivitāte
+  </h2>
+  <div id="feed-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+</div>
+
+<script>
+async function loadFeed() {
+  const res  = await fetch('/api/feed');
+  const data = await res.json();
+  const list = document.getElementById('feed-list');
+  if (!data.length) {
+    list.innerHTML = '<div style="color:#333;font-size:0.85rem;padding:8px">Nav aktivitātes. Pievienojies klubam!</div>';
+    return;
+  }
+  list.innerHTML = data.map(e => `
+    <div style="
+      background:#111118; border:1px solid #2a2a3a; border-radius:10px;
+      padding:8px 14px; display:flex; justify-content:space-between;
+      align-items:center; font-size:0.85rem;
+    ">
+      <span>${e.icon} <strong style="color:var(--gold)">${e.username}</strong> — ${e.text}</span>
+      <span style="color:#444;font-size:0.75rem">${e.time}</span>
+    </div>
+  `).join('');
+}
+loadFeed();
+setInterval(loadFeed, 15000);
 </script>
 
 {% if history %}

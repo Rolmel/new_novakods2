@@ -529,6 +529,7 @@ def card_value(card):
 # ==========================================
 DAILY_BONUS_AMOUNT = 250
 
+
 @app.route('/api/daily', methods=['POST'])
 @login_required
 def api_daily_bonus():
@@ -538,7 +539,7 @@ def api_daily_bonus():
     key     = f'daily:{user_id}'
 
     if redis.exists(key):
-        ttl = redis.ttl(key)
+        ttl     = redis.ttl(key)
         hours   = ttl // 3600
         minutes = (ttl % 3600) // 60
         return jsonify({
@@ -548,38 +549,63 @@ def api_daily_bonus():
         }), 429
 
     conn    = get_db_connection()
+    streak  = _get_and_update_streak(conn, user_id)
     balance = get_or_create_balance(conn, user_id)
-    balance += DAILY_BONUS_AMOUNT
+
+    # Base bonus + streak scaling
+    bonus = DAILY_BONUS_AMOUNT
+    if streak == 7:
+        bonus = 1000
+    elif streak == 30:
+        bonus = 1000
+    elif streak >= 3:
+        bonus = int(DAILY_BONUS_AMOUNT * 1.5)
+
+    balance += bonus
     cur = conn.cursor()
     cur.execute(
         "UPDATE wallets SET balance = %s WHERE user_id = %s",
         (round(balance, 2), user_id)
     )
-
-    cur2 = conn.cursor()
-    cur2.execute(
+    cur.execute(
         """INSERT INTO wallet_log (user_id, delta, reason, balance_after)
            VALUES (%s, %s, %s, %s)""",
-        (user_id, DAILY_BONUS_AMOUNT, 'daily_bonus', round(balance, 2))
+        (user_id, bonus, 'daily_bonus', round(balance, 2))
     )
-    cur2.close()
-    conn.commit()   
+
+    # Day 30 reward — free card_gold cosmetic
+    cosmetic_awarded = None
+    if streak == 30:
+        cur.execute("SELECT id FROM cosmetics WHERE slug = 'card_gold'")
+        cos = cur.fetchone()
+        if cos:
+            cur.execute(
+                """INSERT INTO user_cosmetics (user_id, cosmetic_id)
+                   VALUES (%s, %s) ON CONFLICT DO NOTHING""",
+                (user_id, cos[0])
+            )
+            cosmetic_awarded = 'Zelta kārtis'
+
+    conn.commit()
+    cur.close()
     conn.close()
 
     redis.setex(key, 86400, '1')
-    return jsonify({
-        'ok':      True,
-        'credits': DAILY_BONUS_AMOUNT,
-        'balance': round(balance, 2),
-        'message': f'+{DAILY_BONUS_AMOUNT} monētas! Atkal rīt.'
-    })
 
-@app.route('/dev/redis/state/<game>/<int:uid>')
-def dev_redis_state(game, uid):
-    if not app.debug:
-        return '', 404
-    from redis_games import dev_state
-    return jsonify(dev_state(game, uid))
+    msg = f'+{bonus} monētas! Sērija: {streak} dienas 🔥'
+    if streak == 7:
+        msg = f'🎉 7 dienu sērija! +{bonus} monētas!'
+    if streak == 30:
+        msg = f'🏆 30 dienu sērija! +{bonus} monētas + Zelta kārtis!'
+
+    return jsonify({
+        'ok':               True,
+        'credits':          bonus,
+        'balance':          round(balance, 2),
+        'streak':           streak,
+        'message':          msg,
+        'cosmetic_awarded': cosmetic_awarded,
+    })
 
 # =============================================
 #  CASINO ROUTES
@@ -695,6 +721,9 @@ def api_slots():
     cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
     record_transaction(conn, user_id, 'slots', bet, result, winnings, balance)
     conn.commit()
+    if winnings >= _FEED_MIN_WIN:
+    _post_feed(user_id, 'jackpot', 'slots', winnings,
+               message=f"{result}")
     cur.close()
     conn.close()
 
@@ -2843,8 +2872,320 @@ def api_admin_reset_invite(club_id):
     finally:
         conn.close()
 
+def _get_and_update_streak(conn, user_id):
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        "SELECT last_claim, streak FROM daily_claims WHERE user_id = %s",
+        (user_id,)
+    )
+    row = cur.fetchone()
+    from datetime import date
+    today = date.today()
+
+    if not row:
+        streak = 1
+        cur.execute(
+            """INSERT INTO daily_claims (user_id, last_claim, streak)
+               VALUES (%s, %s, %s)""",
+            (user_id, today, streak)
+        )
+    else:
+        diff = (today - row['last_claim']).days
+        if diff == 1:
+            streak = row['streak'] + 1
+        elif diff == 0:
+            streak = row['streak']  # same day, shouldn't happen but safe
+        else:
+            streak = 1  # broke the chain
+        cur.execute(
+            """UPDATE daily_claims SET last_claim = %s, streak = %s
+               WHERE user_id = %s""",
+            (today, streak, user_id)
+        )
+
+    conn.commit()
+    cur.close()
+    return streak
+
+
+
+_CRASH_WAIT = 8   # seconds between rounds (betting phase)
+_CRASH_TICK = 0.1 # broadcast interval in seconds
+
+def _start_crash_loop():
+    from redis_games import (
+        crash_default_state, crash_save, crash_load,
+        crash_multiplier_now
+    )
+    def loop():
+        import time, math
+        state = crash_default_state()
+        state['round_id'] = 1
+        crash_save(state)
+
+        while True:
+            # ── WAITING phase ──
+            state['phase'] = 'waiting'
+            crash_save(state)
+            socketio.emit('crash_phase', {'phase': 'waiting', 'round_id': state['round_id']})
+            socketio.sleep(_CRASH_WAIT)
+
+            # ── RUNNING phase ──
+            state['phase']      = 'running'
+            state['start_time'] = time.time()
+            crash_save(state)
+            socketio.emit('crash_phase', {'phase': 'running'})
+
+            while True:
+                socketio.sleep(_CRASH_TICK)
+                state = crash_load()
+                if not state:
+                    break
+                mult = crash_multiplier_now(state['start_time'])
+                socketio.emit('crash_tick', {'mult': mult})
+
+                if mult >= state['crash_point']:
+                    break
+
+            # ── CRASHED phase ──
+            state = crash_load() or state
+            state['phase'] = 'crashed'
+            final_mult = state['crash_point']
+            crash_save(state)
+            socketio.emit('crash_phase', {
+                'phase': 'crashed',
+                'mult':  final_mult
+            })
+
+            # Pay out anyone still active (they lose — already deducted at bet time)
+            _crash_resolve_round(state)
+
+            # Reset for next round
+            state = crash_default_state()
+            state['round_id'] = state.get('round_id', 0) + 1
+            crash_save(state)
+
+    socketio.start_background_task(loop)
+
+
+def _crash_resolve_round(state: dict):
+    """Players who cashed out already got paid. Log losers."""
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    for uid_str, p in state['players'].items():
+        if p['cashed_out']:
+            continue  # already paid
+        # loss already deducted at bet time, just log it
+        user_id = int(uid_str)
+        cur.execute("SELECT balance FROM wallets WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        bal = float(row[0]) if row else 0.0
+        cur.execute(
+            """INSERT INTO casino_transactions
+               (user_id, game, bet, result, winnings, balance_after)
+               VALUES (%s, 'crash', %s, %s, %s, %s)""",
+            (user_id, p['bet'], f"Crash @ {state['crash_point']}x", -p['bet'], bal)
+        )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+@socketio.on('crash_bet')
+def crash_bet(data):
+    from redis_games import crash_load, crash_save
+    if 'user_id' not in session:
+        return
+    user_id = session['user_id']
+    bet     = float(data.get('bet', 10))
+    state   = crash_load()
+
+    if not state or state['phase'] != 'waiting':
+        emit('crash_error', {'msg': 'Likmes pieņem tikai starp raundiem!'})
+        return
+
+    conn    = get_db_connection()
+    balance = get_or_create_balance(conn, user_id)
+    if bet <= 0 or bet > balance:
+        conn.close()
+        emit('crash_error', {'msg': 'Nepareizs likmjums'})
+        return
+
+    balance -= bet
+    cur = conn.cursor()
+    cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s",
+                (round(balance, 2), user_id))
+    cur.execute(
+        """INSERT INTO wallet_log (user_id, delta, reason, balance_after)
+           VALUES (%s, %s, 'casino:crash_bet', %s)""",
+        (user_id, -bet, round(balance, 2))
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    state['players'][str(user_id)] = {
+        'bet': bet, 'cashed_out': False, 'cashout_mult': None,
+        'name': session.get('user_name', '?')
+    }
+    crash_save(state)
+    emit('crash_bet_ok', {'balance': round(balance, 2), 'bet': bet})
+    socketio.emit('crash_players', {'players': state['players']})
+
+
+@socketio.on('crash_cashout')
+def crash_cashout(data):
+    from redis_games import crash_load, crash_save, crash_multiplier_now
+    if 'user_id' not in session:
+        return
+    user_id  = session['user_id']
+    uid_str  = str(user_id)
+    state    = crash_load()
+
+    if not state or state['phase'] != 'running':
+        emit('crash_error', {'msg': 'Spēle nav aktīva'})
+        return
+    if uid_str not in state['players']:
+        emit('crash_error', {'msg': 'Tu neesi likuši likmi'})
+        return
+    if state['players'][uid_str]['cashed_out']:
+        emit('crash_error', {'msg': 'Jau izmaksāts'})
+        return
+
+    mult     = crash_multiplier_now(state['start_time'])
+    p        = state['players'][uid_str]
+    winnings = round(p['bet'] * mult, 2)
+    net      = round(winnings - p['bet'], 2)
+
+    p['cashed_out']   = True
+    p['cashout_mult'] = mult
+    crash_save(state)
+
+    conn    = get_db_connection()
+    balance = get_or_create_balance(conn, user_id) + winnings
+    cur     = conn.cursor()
+    cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s",
+                (round(balance, 2), user_id))
+    cur.execute(
+        """INSERT INTO casino_transactions
+           (user_id, game, bet, result, winnings, balance_after)
+           VALUES (%s, 'crash', %s, %s, %s, %s)""",
+        (user_id, p['bet'], f"Cashout @ {mult}x", net, round(balance, 2))
+    )
+    cur.execute(
+        """INSERT INTO wallet_log (user_id, delta, reason, balance_after)
+           VALUES (%s, %s, 'casino:crash_win', %s)""",
+        (user_id, net, round(balance, 2))
+    )
+    conn.commit()
+    if net >= _FEED_MIN_WIN:
+    _post_feed(user_id, 'crash_cashout', 'crash', net,
+               multiplier=mult,
+               message=f"Izmaksāja @ {mult:.2f}x")
+    cur.close()
+    conn.close()
+
+    emit('crash_cashout_ok', {
+        'mult':    mult,
+        'winnings': winnings,
+        'balance': round(balance, 2)
+    })
+    socketio.emit('crash_players', {'players': state['players']})
+
+@app.route('/casino/crash')
+@login_required
+def casino_crash():
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    balance = get_or_create_balance(conn, user_id)
+    conn.close()
+    return render_template('casino_crash.html', balance=balance)
+
+
+_FEED_MIN_WIN = 500  # only post if net win >= this
+
+def _post_feed(user_id: int, event_type: str, game: str,
+               amount: float, multiplier: float = None, message: str = None):
+    """Insert a social feed event. Call after any notable win."""
+    if amount < _FEED_MIN_WIN:
+        return
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute(
+            """INSERT INTO social_feed
+               (user_id, event_type, game, amount, multiplier, message)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (user_id, event_type, game,
+             round(amount, 2),
+             round(multiplier, 2) if multiplier else None,
+             message)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        app.logger.error(f'_post_feed error: {e}')
+
+
+@app.route('/api/feed')
+@login_required
+def api_social_feed():
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Get clubs this user belongs to
+    cur.execute(
+        "SELECT club_id FROM club_members WHERE user_id = %s", (user_id,)
+    )
+    club_ids = [r['club_id'] for r in cur.fetchall()]
+
+    if not club_ids:
+        cur.close()
+        conn.close()
+        return jsonify([])
+
+    # Get feed from clubmates (last 30 events)
+    cur.execute("""
+        SELECT sf.event_type, sf.game, sf.amount, sf.multiplier,
+               sf.message, sf.created_at, u.username
+        FROM social_feed sf
+        JOIN users u ON u.id = sf.user_id
+        WHERE sf.user_id IN (
+            SELECT user_id FROM club_members WHERE club_id = ANY(%s)
+        )
+        ORDER BY sf.created_at DESC
+        LIMIT 30
+    """, (club_ids,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    result = []
+    icons = {
+        'jackpot':       '🎰',
+        'big_win':       '🏆',
+        'bingo':         '🅱️',
+        'crash_cashout': '🚀',
+    }
+    for r in rows:
+        icon = icons.get(r['event_type'], '💰')
+        text = r['message'] or f"{r['game']} +{r['amount']:.0f} coins"
+        if r['multiplier']:
+            text += f" @ {r['multiplier']:.2f}x"
+        result.append({
+            'icon':     icon,
+            'username': r['username'],
+            'text':     text,
+            'amount':   float(r['amount']),
+            'time':     r['created_at'].strftime('%H:%M'),
+        })
+    return jsonify(result)
+
 if __name__ == '__main__':
     init_db()
     init_redis()
+    _start_crash_loop()
     _HOLDEM_TABLES.update(_init_holdem_tables())
     socketio.run(app, debug=False, host='0.0.0.0', port=5000)

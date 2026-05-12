@@ -7,7 +7,7 @@ from flask import jsonify
 
 # ── typing aliases so the signatures are clear ─────────────────────────────
 from typing import Any
-
+import math
 
 # =============================================================
 #  REDIS CONNECTION
@@ -686,6 +686,15 @@ def bingo_call(app, session, request):
     balance   = None
 
     if has_bingo:
+        # After bingo_call_route returns, we can't easily hook in.
+        # Instead add directly inside redis_games.py bingo_call(), after _record_tx call:
+        # (add this inside the `if has_bingo:` block in redis_games.py)
+        if winnings >= 500:
+            try:
+                from admin import _post_feed
+                _post_feed(user_id, 'bingo', 'bingo', winnings)
+            except Exception:
+                pass
         multiplier = max(2, 30 - len(called))
         winnings   = round(bet * multiplier, 2)
         bal        = _get_balance(app, user_id) + winnings
@@ -713,6 +722,41 @@ def bingo_call(app, session, request):
 #      if not app.debug: return '', 404
 #      return jsonify(_load(game, uid) or {})
 
+
+
 def dev_state(game: str, user_id: int) -> dict:
     """Return raw Redis state for debugging."""
     return _load(game, user_id) or {}
+
+
+_CRASH_KEY = 'crash:state'
+_CRASH_TTL = 60 * 10
+
+def crash_generate_point() -> float:
+    """House edge ~5%. Returns crash multiplier e.g. 1.24, 3.87, 47.2"""
+    r = random.random()
+    if r < 0.05:
+        return 1.0  # instant crash 5% of the time
+    return round(max(1.0, 0.95 / (1.0 - random.random())), 2)
+
+def crash_save(state: dict) -> None:
+    _r().setex(_CRASH_KEY, _CRASH_TTL, json.dumps(state))
+
+def crash_load() -> dict | None:
+    raw = _r().get(_CRASH_KEY)
+    return json.loads(raw) if raw else None
+
+def crash_default_state() -> dict:
+    return {
+        'phase':       'waiting',   # waiting | running | crashed
+        'crash_point': crash_generate_point(),
+        'start_time':  None,        # epoch float, set when running starts
+        'players':     {},          # {str(user_id): {bet, cashed_out, cashout_mult}}
+        'round_id':    0,
+    }
+
+def crash_multiplier_now(start_time: float) -> float:
+    """Current multiplier based on elapsed seconds."""
+    elapsed = time.time() - start_time
+    mult = math.exp(0.08 * elapsed)   # doubles roughly every 8.7s
+    return round(mult, 2)

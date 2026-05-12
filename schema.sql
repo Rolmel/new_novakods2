@@ -3,6 +3,20 @@
 --  Run once:  psql -U postgres -d novakods -f schema.sql
 -- ============================================================
 
+CREATE TABLE IF NOT EXISTS social_feed (
+    id         BIGSERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_type TEXT    NOT NULL,  -- 'big_win' | 'bingo' | 'jackpot' | 'crash_cashout'
+    game       TEXT,
+    amount     NUMERIC(12,2),
+    multiplier NUMERIC(8,2),
+    message    TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS social_feed_user ON social_feed(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS social_feed_recent ON social_feed(created_at DESC);
+
 -- ── Extensions ───────────────────────────────────────────────
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS citext;     -- case-insensitive text for usernames
