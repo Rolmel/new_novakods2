@@ -2480,11 +2480,101 @@ def club_detailed(club_id):
 
 
 
- # ============================================================
+    # ==========================================
+#  ADMIN PANEL ROUTES
+# ==========================================
+
+@app.route('/admin')
+@login_required
+@admin_required
+def admin_panel():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    # 1. Fetch Users with Balances and Stats
+    cur.execute("""
+        SELECT u.id, u.username, u.is_admin, u.created_at,
+               COALESCE(w.balance, 0) AS balance,
+               (SELECT COUNT(*) FROM casino_transactions WHERE user_id = u.id) AS total_games
+        FROM users u
+        LEFT JOIN wallets w ON u.id = w.user_id
+        ORDER BY u.id DESC
+    """)
+    users = cur.fetchall()
+    
+    # 2. Fetch Recent Transactions
+    cur.execute("""
+        SELECT t.*, u.username 
+        FROM casino_transactions t
+        JOIN users u ON t.user_id = u.id
+        ORDER BY t.created_at DESC LIMIT 50
+    """)
+    transactions = cur.fetchall()
+    
+    # 3. Fetch Prediction Events
+    cur.execute("SELECT * FROM prediction_events ORDER BY id DESC")
+    predictions = cur.fetchall()
+    
+    # 4. Initial Stats for the top cards
+    stats = _get_admin_stats_dict(cur)
+    
+    cur.close()
+    conn.close()
+    return render_template('admin.html', 
+                           users=users, 
+                           transactions=transactions, 
+                           predictions=predictions, 
+                           stats=stats)
+
+@app.route('/api/admin/stats')
+@login_required
+@admin_required
+def api_admin_stats():
+    """Endpoint for the auto-refreshing stats in admin.html"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    stats = _get_admin_stats_dict(cur)
+    cur.close()
+    conn.close()
+    return jsonify({"ok": True, "stats": stats})
+
+def _get_admin_stats_dict(cur):
+    """Helper to aggregate system-wide statistics"""
+    cur.execute("SELECT COUNT(*) FROM users")
+    u_count = cur.fetchone()['count']
+    
+    cur.execute("SELECT COUNT(*) FROM casino_transactions WHERE created_at >= CURRENT_DATE")
+    b_today = cur.fetchone()['count']
+    
+    cur.execute("SELECT SUM(balance) FROM wallets")
+    t_bal = cur.fetchone()['sum'] or 0
+    
+    cur.execute("SELECT COUNT(*) FROM prediction_events WHERE status = 'open'")
+    p_open = cur.fetchone()['count']
+    
+    cur.execute("SELECT COUNT(*) FROM user_files")
+    f_count = cur.fetchone()['count']
+    
+    cur.execute("SELECT COUNT(*) FROM chat_messages")
+    m_count = cur.fetchone()['count']
+    
+    return {
+        "users": u_count,
+        "bets_today": b_today,
+        "total_balance": round(t_bal, 2),
+        "open_predictions": p_open,
+        "files": f_count,
+        "messages": m_count
+    }
+
+# --- Admin API Actions ---
+
+# ============================================================
 # DROP-IN REPLACEMENT for the four broken admin API functions
 # Replace everything from api_admin_save_user down to the end
 # of the if __name__ == '__main__' block with this content.
 # ============================================================
+
 @app.route('/api/admin/user/<int:user_id>', methods=['POST'])
 @login_required
 @admin_required
@@ -2651,6 +2741,7 @@ def api_admin_danger(action):
         return jsonify({"ok": False, "error": str(e)})
     finally:
         conn.close()
+
 
 if __name__ == '__main__':
     init_db()
