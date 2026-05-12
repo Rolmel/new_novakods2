@@ -23,206 +23,109 @@
 *, *::before, *::after { box-sizing: border-box; }
 body { background: var(--bg); color: var(--text); font-family: var(--sans); margin: 0; }
 
-/* ── Layout ── */
 .adm { max-width: 1300px; margin: 0 auto; padding: 20px 16px 60px; }
 .adm-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 28px; flex-wrap: wrap; gap: 12px;
 }
-.adm-title {
-  font-family: var(--mono); font-size: 1.3rem; font-weight: 700;
-  color: var(--gold); letter-spacing: 1px;
-}
+.adm-title { font-family: var(--mono); font-size: 1.3rem; font-weight: 700; color: var(--gold); letter-spacing: 1px; }
 .refresh-badge {
   display: flex; align-items: center; gap: 8px;
   background: var(--bg1); border: 1px solid var(--border2);
   border-radius: 20px; padding: 5px 14px;
   font-family: var(--mono); font-size: 0.75rem; color: var(--muted);
 }
-.refresh-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--green);
-  animation: blink 2s ease infinite;
-}
+.refresh-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: blink 2s ease infinite; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
 
-/* ── Stats row ── */
-.stats-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 12px; margin-bottom: 28px;
-}
+.stats-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 28px; }
 .stat-card {
-  background: var(--bg1); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 16px 18px;
-  position: relative; overflow: hidden;
-  transition: border-color .2s;
+  background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px; position: relative; overflow: hidden; transition: border-color .2s;
 }
 .stat-card:hover { border-color: var(--border2); }
-.stat-card::after {
-  content: '';
-  position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
-  background: var(--accent, var(--gold));
-  opacity: .5;
-}
-.stat-val {
-  font-family: var(--mono); font-size: 1.7rem; font-weight: 700;
-  color: var(--accent, var(--gold)); line-height: 1;
-  transition: all .3s ease;
-}
+.stat-card::after { content:''; position:absolute; bottom:0; left:0; right:0; height:2px; background:var(--accent,var(--gold)); opacity:.5; }
+.stat-val { font-family: var(--mono); font-size: 1.7rem; font-weight: 700; color: var(--accent, var(--gold)); line-height: 1; transition: all .3s ease; }
 .stat-lbl { font-size: 0.72rem; color: var(--muted); margin-top: 6px; text-transform: uppercase; letter-spacing: .5px; }
 
-/* ── Tabs ── */
 .tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
-.tab {
-  padding: 7px 18px; border-radius: 8px; font-family: var(--mono);
-  font-size: 0.8rem; cursor: pointer; border: 1px solid var(--border);
-  background: var(--bg1); color: var(--muted); transition: all .15s;
-}
+.tab { padding: 7px 18px; border-radius: 8px; font-family: var(--mono); font-size: 0.8rem; cursor: pointer; border: 1px solid var(--border); background: var(--bg1); color: var(--muted); transition: all .15s; }
 .tab.active { background: var(--bg2); border-color: var(--border2); color: var(--text); }
 .tab:hover  { color: var(--text); border-color: var(--border2); }
 
-/* ── Table wrapper ── */
-.panel {
-  background: var(--bg1); border: 1px solid var(--border);
-  border-radius: var(--radius); overflow: hidden; margin-bottom: 20px;
-}
-.panel-bar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 18px; border-bottom: 1px solid var(--border);
-  flex-wrap: wrap; gap: 10px;
-}
+.panel { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; }
+.panel-bar { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 10px; }
 .panel-bar-title { font-family: var(--mono); font-size: 0.82rem; color: var(--muted); letter-spacing: .5px; }
-.search-inp {
-  padding: 6px 12px; background: var(--bg); border: 1px solid var(--border2);
-  border-radius: 8px; color: var(--text); font-family: var(--sans); font-size: 0.85rem;
-  width: 200px; transition: border-color .2s;
-}
+.search-inp { padding: 6px 12px; background: var(--bg); border: 1px solid var(--border2); border-radius: 8px; color: var(--text); font-family: var(--sans); font-size: 0.85rem; width: 200px; transition: border-color .2s; }
 .search-inp:focus { outline: none; border-color: var(--gold); }
 .tbl-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-th {
-  padding: 10px 14px; text-align: left; color: var(--muted);
-  font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase;
-  letter-spacing: .8px; border-bottom: 1px solid var(--border);
-  font-weight: 600; white-space: nowrap;
-}
+th { padding: 10px 14px; text-align: left; color: var(--muted); font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: .8px; border-bottom: 1px solid var(--border); font-weight: 600; white-space: nowrap; }
 td { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.03); vertical-align: middle; }
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: rgba(255,255,255,.015); }
 .mono { font-family: var(--mono); }
 
-/* ── Badges ── */
-.badge {
-  display: inline-block; padding: 2px 9px; border-radius: 20px;
-  font-size: 0.7rem; font-weight: 600; white-space: nowrap;
-}
-.badge-admin  { background:#f5c84218; border:1px solid var(--gold); color:var(--gold); }
-.badge-user   { background:#4dabf518; border:1px solid var(--blue); color:var(--blue); }
-.badge-open   { background:#00e67618; border:1px solid var(--green); color:var(--green); }
-.badge-closed { background:#ff3d5a18; border:1px solid var(--red); color:var(--red); }
+.badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
+.badge-admin    { background:#f5c84218; border:1px solid var(--gold); color:var(--gold); }
+.badge-user     { background:#4dabf518; border:1px solid var(--blue); color:var(--blue); }
+.badge-open     { background:#00e67618; border:1px solid var(--green); color:var(--green); }
+.badge-closed   { background:#ff3d5a18; border:1px solid var(--red); color:var(--red); }
 .badge-resolved { background:#f5c84218; border:1px solid var(--gold); color:var(--gold); }
 .badge-win  { color: var(--green); font-family: var(--mono); font-weight: 700; }
 .badge-loss { color: var(--red);   font-family: var(--mono); font-weight: 700; }
 
-/* ── Buttons ── */
 .btn-row { display: flex; gap: 5px; }
-.abtn {
-  padding: 5px 11px; border-radius: 6px; border: none;
-  font-family: var(--sans); font-size: 0.78rem; font-weight: 600;
-  cursor: pointer; transition: all .12s; white-space: nowrap;
-}
-.abtn-edit   { background:#4dabf520; color:var(--blue); border:1px solid #4dabf544; }
-.abtn-edit:hover { background:#4dabf540; }
-.abtn-del    { background:#ff3d5a18; color:var(--red); border:1px solid #ff3d5a44; }
-.abtn-del:hover  { background:#ff3d5a30; }
-.abtn-tog    { background:#f5c84218; color:var(--gold); border:1px solid #f5c84244; }
-.abtn-tog:hover  { background:#f5c84230; }
+.abtn { padding: 5px 11px; border-radius: 6px; border: none; font-family: var(--sans); font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: all .12s; white-space: nowrap; }
+.abtn-edit   { background:#4dabf520; color:var(--blue);  border:1px solid #4dabf544; }
+.abtn-edit:hover  { background:#4dabf540; }
+.abtn-del    { background:#ff3d5a18; color:var(--red);   border:1px solid #ff3d5a44; }
+.abtn-del:hover   { background:#ff3d5a30; }
+.abtn-tog    { background:#f5c84218; color:var(--gold);  border:1px solid #f5c84244; }
+.abtn-tog:hover   { background:#f5c84230; }
 .abtn-green  { background:#00e67620; color:var(--green); border:1px solid #00e67644; }
 .abtn-green:hover { background:#00e67630; }
 
-/* ── Modal ── */
-.modal-bg {
-  display: none; position: fixed; inset: 0;
-  background: rgba(0,0,0,.72); backdrop-filter: blur(6px);
-  z-index: 200; align-items: center; justify-content: center;
-}
+.modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.72); backdrop-filter: blur(6px); z-index: 200; align-items: center; justify-content: center; }
 .modal-bg.open { display: flex; }
-.modal {
-  background: var(--bg1); border: 1px solid var(--border2);
-  border-radius: 14px; padding: 28px; width: min(460px, 94vw);
-  max-height: 90vh; overflow-y: auto;
-  animation: mopen .18s ease;
-}
+.modal { background: var(--bg1); border: 1px solid var(--border2); border-radius: 14px; padding: 28px; width: min(460px, 94vw); max-height: 90vh; overflow-y: auto; animation: mopen .18s ease; }
 @keyframes mopen { from{opacity:0;transform:scale(.96)} to{opacity:1;transform:scale(1)} }
 .modal h3 { font-family: var(--mono); color: var(--gold); margin: 0 0 18px; font-size: 1rem; }
 .field { margin-bottom: 14px; }
 .field label { display: block; font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
-.field input, .field select, .field textarea {
-  width: 100%; padding: 9px 12px; background: var(--bg);
-  border: 1px solid var(--border2); border-radius: 8px;
-  color: var(--text); font-family: var(--sans); font-size: 0.9rem;
-  transition: border-color .2s;
-}
+.field input, .field select, .field textarea { width: 100%; padding: 9px 12px; background: var(--bg); border: 1px solid var(--border2); border-radius: 8px; color: var(--text); font-family: var(--sans); font-size: 0.9rem; transition: border-color .2s; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--gold); }
 .modal-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
-.mbtn {
-  padding: 9px 20px; border: none; border-radius: 8px;
-  font-family: var(--sans); font-size: 0.9rem; font-weight: 600; cursor: pointer;
-}
+.mbtn { padding: 9px 20px; border: none; border-radius: 8px; font-family: var(--sans); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
 .mbtn-save   { background: linear-gradient(135deg,#f5c842,#e6a800); color:#000; }
 .mbtn-cancel { background: var(--bg2); color: var(--muted); border: 1px solid var(--border2); }
 .mbtn-danger { background: var(--red); color: #fff; }
 
-/* ── Toast ── */
-.toast {
-  position: fixed; bottom: 24px; right: 24px; z-index: 300;
-  background: var(--bg1); border-radius: 10px; padding: 13px 20px;
-  font-size: 0.88rem; font-weight: 600; display: none;
-  box-shadow: 0 8px 30px rgba(0,0,0,.5); min-width: 220px;
-  animation: tslide .2s ease;
-}
+.toast { position: fixed; bottom: 24px; right: 24px; z-index: 300; background: var(--bg1); border-radius: 10px; padding: 13px 20px; font-size: 0.88rem; font-weight: 600; display: none; box-shadow: 0 8px 30px rgba(0,0,0,.5); min-width: 220px; animation: tslide .2s ease; }
 @keyframes tslide { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
 .toast.ok  { border: 1px solid var(--green); color: var(--green); }
 .toast.err { border: 1px solid var(--red);   color: var(--red); }
 
-/* ── Countdown ring ── */
-.ctimer {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
-}
+.ctimer { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
 .ctimer span { color: var(--text); font-weight: 700; }
 
-/* ── Empty states ── */
 .empty-row td { text-align: center; padding: 40px; color: var(--muted); font-style: italic; }
-
-/* ── Tab sections ── */
 .tab-section { display: none; }
 .tab-section.active { display: block; }
 
-/* ── Danger zone ── */
-.danger-zone {
-  background: #1a0a0e; border: 1px solid #3a1020;
-  border-radius: var(--radius); padding: 20px 22px; margin-top: 24px;
-}
+.danger-zone { background: #1a0a0e; border: 1px solid #3a1020; border-radius: var(--radius); padding: 20px 22px; margin-top: 24px; }
 .danger-zone h3 { font-family: var(--mono); color: var(--red); margin: 0 0 14px; font-size: 0.85rem; letter-spacing: 1px; }
 .danger-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-.dbtn {
-  padding: 9px 18px; background: #2a0a12; border: 1px solid #4a1822;
-  color: var(--red); border-radius: 8px;
-  font-family: var(--sans); font-size: 0.85rem; font-weight: 600; cursor: pointer;
-  transition: all .15s;
-}
+.dbtn { padding: 9px 18px; background: #2a0a12; border: 1px solid #4a1822; color: var(--red); border-radius: 8px; font-family: var(--sans); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all .15s; }
 .dbtn:hover { background: #3a0a18; border-color: var(--red); }
 
 .pag { display:flex; gap:6px; padding:12px 18px; align-items:center; }
-.pag button {
-  padding:5px 11px; background:var(--bg2); border:1px solid var(--border2);
-  color:var(--muted); border-radius:6px; cursor:pointer; font-family:var(--mono); font-size:0.75rem;
-  transition:all .15s;
-}
+.pag button { padding:5px 11px; background:var(--bg2); border:1px solid var(--border2); color:var(--muted); border-radius:6px; cursor:pointer; font-family:var(--mono); font-size:0.75rem; transition:all .15s; }
 .pag button.cur, .pag button:hover { color:var(--text); border-color:var(--gold); }
 .pag .pag-info { font-family:var(--mono); font-size:0.72rem; color:var(--muted); margin-left:auto; }
+
+/* invite code chip */
+.invite-chip { font-family:var(--mono); font-size:0.78rem; color:var(--blue); letter-spacing:1px; }
 </style>
 
 <div class="adm">
@@ -238,7 +141,7 @@ tr:hover td { background: rgba(255,255,255,.015); }
   </div>
 
   <!-- Stats row -->
-  <div class="stats-row" id="stats-row">
+  <div class="stats-row">
     <div class="stat-card" style="--accent:var(--blue)">
       <div class="stat-val" id="s-users">{{ stats.users }}</div>
       <div class="stat-lbl">Total Users</div>
@@ -270,6 +173,7 @@ tr:hover td { background: rgba(255,255,255,.015); }
     <div class="tab active" onclick="switchTab('users', this)">👤 Users</div>
     <div class="tab" onclick="switchTab('transactions', this)">🎰 Transactions</div>
     <div class="tab" onclick="switchTab('predictions', this)">📈 Predictions</div>
+    <div class="tab" onclick="switchTab('clubs', this)">🏛️ Clubs</div>
     <div class="tab" onclick="switchTab('canvas', this)">🎨 Canvas</div>
   </div>
 
@@ -347,9 +251,7 @@ tr:hover td { background: rgba(255,255,255,.015); }
           </tbody>
         </table>
       </div>
-      <div class="pag" id="tx-pag">
-        <span class="pag-info">Showing last {{ transactions|length }} records</span>
-      </div>
+      <div class="pag"><span class="pag-info">Showing last {{ transactions|length }} records</span></div>
     </div>
   </div>
 
@@ -383,6 +285,64 @@ tr:hover td { background: rgba(255,255,255,.015); }
             </tr>
             {% else %}
             <tr class="empty-row"><td colspan="7">No predictions yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ CLUBS TAB ══════════ -->
+  <div class="tab-section" id="tab-clubs">
+    <div class="panel">
+      <div class="panel-bar">
+        <span class="panel-bar-title">CLUBS</span>
+        <input class="search-inp" id="club-search" placeholder="Search club / owner…"
+               oninput="filterTable('club-tbody', this.value, 0)">
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>ID</th><th>Name</th><th>Owner</th><th>Members</th>
+            <th>Invite Code</th><th>Created</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="club-tbody">
+            {% for c in clubs %}
+            <tr id="crow-{{ c.id }}">
+              <td class="mono" style="color:var(--muted)">{{ c.id }}</td>
+              <td>
+                <strong>{{ c.name }}</strong>
+                {% if c.description %}
+                <div style="color:var(--muted);font-size:0.74rem;margin-top:2px">
+                  {{ c.description[:60] }}{% if c.description|length > 60 %}…{% endif %}
+                </div>
+                {% endif %}
+              </td>
+              <td>{{ c.owner_name }}</td>
+              <td class="mono">{{ c.member_count }}</td>
+              <td>
+                <span class="invite-chip" id="inv-{{ c.id }}">{{ c.invite_code }}</span>
+                <button class="abtn abtn-tog" style="margin-left:6px;padding:3px 8px;font-size:0.68rem"
+                        onclick="resetInvite({{ c.id }})" title="Generate new invite code">↺</button>
+              </td>
+              <td style="color:var(--muted);font-size:0.78rem">
+                {{ c.created_at.strftime('%d.%m.%Y') if c.created_at else '—' }}
+              </td>
+              <td>
+                <div class="btn-row">
+                  <button class="abtn abtn-edit"
+                          onclick="openEditClub({{ c.id }}, '{{ c.name|replace("'","\\'") }}', '{{ (c.description or '')|replace("'","\\'") }}')">
+                    ✏ Edit
+                  </button>
+                  <button class="abtn abtn-del"
+                          onclick="confirmDelete('club', {{ c.id }}, '{{ c.name|replace("'","\\'") }}')">
+                    🗑
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr class="empty-row"><td colspan="7">No clubs yet.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -439,7 +399,7 @@ tr:hover td { background: rgba(255,255,255,.015); }
     </div>
     <div class="modal-btns">
       <button class="mbtn mbtn-cancel" onclick="closeModal('modal-user')">Cancel</button>
-      <button class="mbtn mbtn-save" onclick="saveUser()">Save</button>
+      <button class="mbtn mbtn-save"   onclick="saveUser()">Save</button>
     </div>
   </div>
 </div>
@@ -473,7 +433,27 @@ tr:hover td { background: rgba(255,255,255,.015); }
     </div>
     <div class="modal-btns">
       <button class="mbtn mbtn-cancel" onclick="closeModal('modal-pred')">Cancel</button>
-      <button class="mbtn mbtn-save" onclick="savePrediction()">Save</button>
+      <button class="mbtn mbtn-save"   onclick="savePrediction()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit Club Modal ── -->
+<div class="modal-bg" id="modal-club">
+  <div class="modal">
+    <h3>🏛️ Edit Club</h3>
+    <input type="hidden" id="ec-id">
+    <div class="field">
+      <label>Club Name</label>
+      <input type="text" id="ec-name" maxlength="50">
+    </div>
+    <div class="field">
+      <label>Description</label>
+      <textarea id="ec-desc" rows="3" maxlength="200" placeholder="Optional description…"></textarea>
+    </div>
+    <div class="modal-btns">
+      <button class="mbtn mbtn-cancel" onclick="closeModal('modal-club')">Cancel</button>
+      <button class="mbtn mbtn-save"   onclick="saveClub()">Save</button>
     </div>
   </div>
 </div>
@@ -503,12 +483,11 @@ function switchTab(name, el) {
   el.classList.add('active');
 }
 
-// ── Live filter (client-side, zero server load) ──
+// ── Live filter ──
 function filterTable(tbodyId, query, colIdx) {
   const q = query.toLowerCase();
   document.querySelectorAll('#' + tbodyId + ' tr:not(.empty-row)').forEach(tr => {
-    const cells = tr.querySelectorAll('td');
-    const text  = [...cells].map(td => td.textContent).join(' ').toLowerCase();
+    const text = [...tr.querySelectorAll('td')].map(td => td.textContent).join(' ').toLowerCase();
     tr.style.display = text.includes(q) ? '' : 'none';
   });
 }
@@ -516,7 +495,6 @@ function filterTable(tbodyId, query, colIdx) {
 // ── Modal helpers ──
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-
 document.querySelectorAll('.modal-bg').forEach(bg => {
   bg.addEventListener('click', e => { if (e.target === bg) bg.classList.remove('open'); });
 });
@@ -532,9 +510,9 @@ function toast(msg, type='ok') {
 
 // ── Edit User ──
 function openEditUser(id, username, balance) {
-  document.getElementById('eu-id').value = id;
+  document.getElementById('eu-id').value       = id;
   document.getElementById('eu-username').value = username;
-  document.getElementById('eu-balance').value = balance;
+  document.getElementById('eu-balance').value  = balance;
   openModal('modal-user');
 }
 async function saveUser() {
@@ -552,7 +530,7 @@ async function saveUser() {
     closeModal('modal-user');
     loadStats();
     setTimeout(() => location.reload(), 800);
-  } else { toast('❌ ' + data.error, 'err'); }
+  } else toast('❌ ' + data.error, 'err');
 }
 
 // ── Toggle Admin ──
@@ -589,28 +567,70 @@ async function savePrediction() {
   } else toast('❌ ' + data.error, 'err');
 }
 
+// ── Edit Club ──
+function openEditClub(id, name, desc) {
+  document.getElementById('ec-id').value   = id;
+  document.getElementById('ec-name').value = name;
+  document.getElementById('ec-desc').value = desc;
+  openModal('modal-club');
+}
+async function saveClub() {
+  const id   = document.getElementById('ec-id').value;
+  const name = document.getElementById('ec-name').value.trim();
+  const desc = document.getElementById('ec-desc').value.trim();
+  if (!name) return;
+  const res  = await fetch('/api/admin/club/' + id, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, description: desc })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast('✅ Club updated');
+    closeModal('modal-club');
+    setTimeout(() => location.reload(), 700);
+  } else toast('❌ ' + data.error, 'err');
+}
+
+// ── Reset Invite Code ──
+async function resetInvite(id) {
+  if (!confirm('Generate a new invite code? The old one will stop working.')) return;
+  const res  = await fetch('/api/admin/club/' + id + '/reset_invite', { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    document.getElementById('inv-' + id).textContent = data.invite_code;
+    toast('✅ New invite code: ' + data.invite_code);
+  } else toast('❌ ' + data.error, 'err');
+}
+
 // ── Confirm & Execute Delete ──
 function confirmDelete(type, id, name) {
-  const labels = { user: 'user', transaction: 'transaction', prediction: 'prediction event' };
+  const labels = {
+    user:        'user',
+    transaction: 'transaction',
+    prediction:  'prediction event',
+    club:        'club and all its members',
+  };
   document.getElementById('del-type').value = type;
   document.getElementById('del-id').value   = id;
   document.getElementById('del-msg').textContent =
-    `Are you sure you want to delete ${labels[type] || type} "${name}"? This cannot be undone.`;
+    'Are you sure you want to delete ' + (labels[type] || type) + ' "' + name + '"? This cannot be undone.';
   openModal('modal-del');
 }
 async function execDelete() {
   const type = document.getElementById('del-type').value;
   const id   = document.getElementById('del-id').value;
-  const res  = await fetch(`/api/admin/${type}/${id}`, { method: 'DELETE' });
+  const res  = await fetch('/api/admin/' + type + '/' + id, { method: 'DELETE' });
   const data = await res.json();
   if (data.ok) {
     toast('🗑 Deleted');
     closeModal('modal-del');
-    const row = document.getElementById(
-      type === 'user' ? `urow-${id}` :
-      type === 'transaction' ? `txrow-${id}` :
-      `predrow-${id}`
-    );
+    const rowIds = {
+      user:        'urow-'    + id,
+      transaction: 'txrow-'  + id,
+      prediction:  'predrow-'+ id,
+      club:        'crow-'   + id,
+    };
+    const row = document.getElementById(rowIds[type]);
     if (row) { row.style.transition = 'opacity .3s'; row.style.opacity = '0'; setTimeout(() => row.remove(), 300); }
     loadStats();
   } else toast('❌ ' + data.error, 'err');
@@ -619,8 +639,8 @@ async function execDelete() {
 // ── Danger actions ──
 async function dangerAction(action) {
   const msgs = {
-    clear_canvas:     'Clear entire canvas and all pixel scores?',
-    reset_balances:   'Reset ALL user balances to 1000 coins? This cannot be undone.',
+    clear_canvas:   'Clear entire canvas and all pixel scores?',
+    reset_balances: 'Reset ALL user balances to 1000 coins? This cannot be undone.',
   };
   if (!confirm(msgs[action] || 'Are you sure?')) return;
   const res  = await fetch('/api/admin/danger/' + action, { method: 'POST' });
@@ -628,7 +648,7 @@ async function dangerAction(action) {
   if (data.ok) toast('✅ ' + data.message); else toast('❌ ' + data.error, 'err');
 }
 
-// ── Lightweight stats polling (no full page reload, minimal DB load) ──
+// ── Stats polling ──
 let _countdown = 15;
 
 async function loadStats() {
@@ -670,10 +690,8 @@ function startCountdown() {
   }, 1000);
 }
 
-// Kick off after page load
 window.addEventListener('load', () => {
   startCountdown();
-  // Set initial last-refresh
   document.getElementById('last-refresh').textContent =
     new Date().toLocaleTimeString('lv-LV', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 });

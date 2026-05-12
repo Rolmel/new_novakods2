@@ -2741,7 +2741,76 @@ def api_admin_danger(action):
         return jsonify({"ok": False, "error": str(e)})
     finally:
         conn.close()
+# ── Paste these routes into admin.py, just before if __name__ == '__main__' ──
 
+@app.route('/api/admin/club/<int:club_id>', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_save_club(club_id):
+    data        = request.json or {}
+    name        = data.get('name', '').strip()[:50]
+    description = data.get('description', '').strip()[:200]
+    if not name:
+        return jsonify({"ok": False, "error": "Name cannot be empty"})
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE clubs SET name = %s, description = %s WHERE id = %s",
+            (name, description, club_id)
+        )
+        conn.commit()
+        cur.close()
+        return jsonify({"ok": True})
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        return jsonify({"ok": False, "error": "Club name already taken"})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"ok": False, "error": str(e)})
+    finally:
+        conn.close()
+
+
+@app.route('/api/admin/club/<int:club_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def api_admin_delete_club(club_id):
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM clubs WHERE id = %s", (club_id,))
+        conn.commit()
+        cur.close()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"ok": False, "error": str(e)})
+    finally:
+        conn.close()
+
+
+@app.route('/api/admin/club/<int:club_id>/reset_invite', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_reset_invite(club_id):
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE clubs SET invite_code = encode(gen_random_bytes(6), 'hex') "
+            "WHERE id = %s RETURNING invite_code",
+            (club_id,)
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        return jsonify({"ok": True, "invite_code": row[0]})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"ok": False, "error": str(e)})
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     init_db()
