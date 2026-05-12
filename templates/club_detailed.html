@@ -81,13 +81,22 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); margin:0 0 6px; f
       </div>
     </div>
 
-    {% if is_member %}
-    <div class="invite-box">
-      <span style="color:#555">🔗 Ielūguma kods:</span>
-      <span class="invite-code">{{ club.invite_code }}</span>
-      <button class="copy-btn" onclick="navigator.clipboard.writeText('{{ club.invite_code }}').then(()=>this.textContent='✓ Kopēts!')">📋 Kopēt</button>
-    </div>
-    {% endif %}
+  {% if is_member %}
+  <div class="invite-box">
+    <span style="color:#555">🔗 Ielūguma saite:</span>
+    <span class="invite-code" id="invite-link">{{ request.host_url }}join/{{ club.invite_code }}</span>
+    <button class="copy-btn" onclick="copyInvite()">📋 Kopēt</button>
+  </div>
+  <script>
+  function copyInvite() {
+    const link = document.getElementById('invite-link').textContent;
+    navigator.clipboard.writeText(link).then(() => {
+      document.querySelector('.copy-btn').textContent = '✓ Nokopēts!';
+      setTimeout(() => document.querySelector('.copy-btn').textContent = '📋 Kopēt', 2000);
+    });
+  }
+  </script>
+  {% endif %}
   </div>
 
   <div class="panel">

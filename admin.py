@@ -2337,6 +2337,36 @@ def clubs_list():
     cur.close()
     conn.close()
     return render_template('clubs.html', clubs=all_clubs, my_clubs=my_clubs)
+
+@app.route('/join/<string:invite_code>')
+@login_required
+def join_club_by_link(invite_code):
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM clubs WHERE invite_code = %s", (invite_code,))
+    club = cur.fetchone()
+    if not club:
+        flash("Ielūguma saite nav derīga.", "error")
+        cur.close()
+        conn.close()
+        return redirect(url_for('clubs_list'))
+    try:
+        cur2 = conn.cursor()
+        cur2.execute(
+            "INSERT INTO club_members (club_id, user_id) VALUES (%s, %s)",
+            (club['id'], user_id)
+        )
+        conn.commit()
+        cur2.close()
+        flash(f"Pievienojies klubam '{club['name']}'!", "success")
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        flash("Tu jau esi šajā klubā.", "error")
+    finally:
+        cur.close()
+        conn.close()
+    return redirect(url_for('club_detailed', club_id=club['id']))
  
  
 @app.route('/clubs/create', methods=['POST'])
