@@ -31,6 +31,190 @@ from redis_games import (
 from win_card import generate_win_card
 from flask import Response
 
+@app.route('/shop')
+@login_required
+def shop():
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    balance = get_or_create_balance(conn, user_id)
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT * FROM cosmetics WHERE is_active=TRUE ORDER BY category, price")
+    items = cur.fetchall()
+
+    cur.execute("SELECT cosmetic_id FROM user_cosmetics WHERE user_id=%s", (user_id,))
+    owned = {row['cosmetic_id'] for row in cur.fetchall()}
+
+    cur.execute("SELECT equipped_skin FROM profiles WHERE user_id=%s", (user_id,))
+    profile = cur.fetchone()
+    equipped_skin_id = profile['equipped_skin'] if profile else None
+
+    cur.close()
+    conn.close()
+    return render_template('shop.html', items=items, owned=owned,
+                           balance=balance, equipped_skin_id=equipped_skin_id)
+
+# ── Card skin CSS overrides ─────────────────────────────────
+# Targets all card classes used across blackjack, highlow,
+# holdem, videopoker templates.
+CARD_SKIN_CSS: dict[str, str] = {
+    'card_default': '',
+
+    'card_gold': """
+        .card:not(.back),.big-card:not(.empty),.hole-card:not(.back),
+        .cc:not(.ph),.mc:not(.bk),.bigcard:not(.bk) {
+            background:#fff9e0 !important;
+            border:1px solid #e6a800 !important;
+            box-shadow:0 4px 16px #f5c84222 !important;
+        }
+        .card.red,.big-card.red,.cc.rd,.mc.rd,.bigcard.rd { color:#8b0000 !important; }
+        .card.back,.hole-card.back,.mc.bk,.bigcard.bk {
+            background:linear-gradient(135deg,#8a6200,#c89800) !important;
+        }
+    """,
+
+    'card_neon': """
+        .card:not(.back),.big-card:not(.empty),.hole-card:not(.back),
+        .cc:not(.ph),.mc:not(.bk),.bigcard:not(.bk) {
+            background:#080812 !important;
+            border:1px solid #00ff88 !important;
+            box-shadow:0 0 10px #00ff8833 !important;
+            color:#00ff88 !important;
+        }
+        .card.red,.big-card.red,.cc.rd,.mc.rd,.bigcard.rd { color:#ff0066 !important; }
+        .card.back,.hole-card.back,.mc.bk,.bigcard.bk {
+            background:linear-gradient(135deg,#001a0a,#003322) !important;
+            border-color:#00ff88 !important;
+        }
+    """,
+
+    'card_dark': """
+        .card:not(.back),.big-card:not(.empty),.hole-card:not(.back),
+        .cc:not(.ph),.mc:not(.bk),.bigcard:not(.bk) {
+            background:#1a1a2e !important;
+            border:1px solid #4a4a6a !important;
+            color:#e0e0e0 !important;
+            box-shadow:none !important;
+        }
+        .card.red,.big-card.red,.cc.rd,.mc.rd,.bigcard.rd { color:#ff6666 !important; }
+        .card.back,.hole-card.back,.mc.bk,.bigcard.bk {
+            background:linear-gradient(135deg,#0a0a1a,#1a1a3a) !important;
+        }
+    """,
+
+    'card_galaxy': """
+        .card:not(.back),.big-card:not(.empty),.hole-card:not(.back),
+        .cc:not(.ph),.mc:not(.bk),.bigcard:not(.bk) {
+            background:linear-gradient(135deg,#0d0221,#1a0535,#0a1628) !important;
+            border:1px solid #7c3aed !important;
+            box-shadow:0 0 14px #7c3aed33 !important;
+            color:#e0d0ff !important;
+        }
+        .card.red,.big-card.red,.cc.rd,.mc.rd,.bigcard.rd { color:#ff88cc !important; }
+        .card.back,.hole-card.back,.mc.bk,.bigcard.bk {
+            background:linear-gradient(135deg,#2a0a4a,#3d1a6e) !important;
+        }
+    """,
+
+    'card_retro': """
+        .card:not(.back),.big-card:not(.empty),.hole-card:not(.back),
+        .cc:not(.ph),.mc:not(.bk),.bigcard:not(.bk) {
+            background:#e8dcc8 !important;
+            border:2px solid #5a4a2a !important;
+            border-radius:4px !important;
+            color:#2a1a0a !important;
+            font-family:'Courier New',monospace !important;
+            box-shadow:3px 3px 0 #5a4a2a !important;
+        }
+        .card.red,.big-card.red,.cc.rd,.mc.rd,.bigcard.rd { color:#cc2200 !important; }
+        .card.back,.hole-card.back,.mc.bk,.bigcard.bk {
+            background:repeating-linear-gradient(
+                45deg,#5a4a2a 0,#5a4a2a 4px,#2a1a0a 4px,#2a1a0a 8px
+            ) !important;
+        }
+    """,
+}
+
+
+def _get_equipped_skin_css(user_id: int) -> str:
+    """Returns the CSS string for the user's equipped card skin, or '' if none."""
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT c.slug FROM profiles p
+            JOIN cosmetics c ON c.id = p.equipped_skin
+            WHERE p.user_id = %s
+        """, (user_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if row:
+            return CARD_SKIN_CSS.get(row['slug'], '')
+    except Exception:
+        pass
+    return ''
+
+
+@app.context_processor
+def inject_skin():
+    """Makes `card_skin_css` available in every Jinja template."""
+    css = ''
+    if 'user_id' in session:
+        css = _get_equipped_skin_css(session['user_id'])
+    return {'card_skin_css': css}
+
+@app.route('/api/shop/equip', methods=['POST'])
+@login_required
+def api_shop_equip():
+    user_id     = session['user_id']
+    cosmetic_id = int((request.json or {}).get('cosmetic_id', 0))
+
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Must own it
+    cur.execute(
+        "SELECT 1 FROM user_cosmetics WHERE user_id=%s AND cosmetic_id=%s",
+        (user_id, cosmetic_id)
+    )
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav tavā īpašumā'}), 403
+
+    cur.execute("SELECT category, slug FROM cosmetics WHERE id=%s", (cosmetic_id,))
+    item = cur.fetchone()
+    if not item or item['category'] != 'card_skin':
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav kāršu izskats'}), 400
+
+    cur2 = conn.cursor()
+    cur2.execute(
+        "INSERT INTO profiles (user_id, equipped_skin) VALUES (%s,%s) "
+        "ON CONFLICT (user_id) DO UPDATE SET equipped_skin=%s",
+        (user_id, cosmetic_id, cosmetic_id)
+    )
+    conn.commit()
+    cur2.close()
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True, 'slug': item['slug']})
+
+
+@app.route('/api/shop/unequip', methods=['POST'])
+@login_required
+def api_shop_unequip():
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor()
+    cur.execute(
+        "UPDATE profiles SET equipped_skin=NULL WHERE user_id=%s", (user_id,)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True})
+
 def _tournament_leaderboard(conn, tournament_id: int, limit: int = 10):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
@@ -2281,11 +2465,15 @@ def profile_page(username):
     cur.close()
     conn.close()
 
-    avatar_url = None
-    if profile and profile['avatar_path']:
-        avatar_url = url_for('static', filename=f"uploads/avatars/{profile['avatar_path']}")
-    profile_data = dict(profile) if profile else {}
-    profile_data['avatar_url'] = avatar_url
+    # inside profile_page(), after fetching profile:
+    equipped_skin_name = None
+    if profile and profile.get('equipped_skin'):
+        cur2 = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur2.execute("SELECT name FROM cosmetics WHERE id=%s", (profile['equipped_skin'],))
+        skin_row = cur2.fetchone()
+        cur2.close()
+        equipped_skin_name = skin_row['name'] if skin_row else None
+    profile_data['equipped_skin_name'] = equipped_skin_name
 
     is_own_profile = ('user_id' in session and session['user_id'] == owner['id'])
     return render_template(

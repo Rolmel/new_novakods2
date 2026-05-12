@@ -74,6 +74,26 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
       </div>
       <div class="grid" id="grid-{{ item.category }}">
     {% endif %}
+    
+    <div id="skin-preview-box" style="
+      display:none; text-align:center; margin-bottom:20px;
+      background:#111118; border:1px solid #2a2a3a; border-radius:14px; padding:20px;
+    ">
+      <div style="color:#888;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">
+        Priekšskatījums
+      </div>
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <div class="card" style="width:60px;height:84px;font-size:1rem;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:700;">
+          <span>A</span><span>♠</span>
+        </div>
+        <div class="card red" style="width:60px;height:84px;font-size:1rem;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:700;">
+          <span>K</span><span>♥</span>
+        </div>
+        <div class="card back" style="width:60px;height:84px;font-size:1rem;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          🂠
+        </div>
+      </div>
+    </div>
 
     {% set is_owned = item.id in owned %}
     <div class="item-card {{ 'owned' if is_owned else '' }}" id="card-{{ item.id }}">
@@ -90,13 +110,19 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
         {% if item.price == 0 %}BEZMAKSAS{% else %}💰 {{ item.price }} coins{% endif %}
       </div>
       {% if is_owned %}
-        <button class="buy-btn owned-btn">✅ Pieder</button>
-      {% elif item.price == 0 %}
-        <button class="buy-btn can-buy" onclick="buyItem({{ item.id }}, this)">➕ Iegūt</button>
+  {% set is_skin = item.category == 'card_skin' %}
+    {% if is_skin %}
+      {% if item.id == equipped_skin_id %}
+        <button class="buy-btn" id="btn-{{ item.id }}"
+            style="background:#1a3a1a;color:var(--green);border:1px solid var(--green);"
+            onclick="unequipSkin()">✨ Aktīvs — Noņemt</button>
       {% else %}
-        <button class="buy-btn can-buy" onclick="buyItem({{ item.id }}, this)"
-                id="btn-{{ item.id }}">🛒 Pirkt</button>
+        <button class="buy-btn can-buy" onclick="equipSkin({{ item.id }}, this)">⚡ Lietot</button>
       {% endif %}
+    {% else %}
+    <button class="buy-btn owned-btn">✅ Pieder</button>
+    {% endif %}
+  {% elif item.price == 0 %}
     </div>
 
     {# Close grid div after last item of each category #}
@@ -113,6 +139,46 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
 <div class="result-toast" id="toast"></div>
 
 <script>
+  
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.querySelector('.buy-btn.equip-active, .owned-btn')) {
+    document.getElementById('skin-preview-box').style.display = 'block';
+  }
+});
+
+async function equipSkin(id, btn) {
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  const res  = await fetch('/api/shop/equip', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ cosmetic_id: id })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    // Reset any other active skin buttons
+    document.querySelectorAll('.equip-active').forEach(b => {
+      b.className = 'buy-btn can-buy';
+      b.textContent = '⚡ Lietot';
+      b.disabled = false;
+      b.onclick = function() { equipSkin(parseInt(b.dataset.cid), b); };
+    });
+    btn.className = 'buy-btn equip-active';
+    btn.style.cssText = 'background:#1a3a1a;color:var(--green);border:1px solid var(--green);width:100%;padding:10px;border-radius:10px;cursor:pointer;font-weight:700;';
+    btn.textContent = '✨ Aktīvs — Noņemt';
+    btn.onclick = unequipSkin;
+    showToast('✨ ' + data.slug + ' aktivizēts!', 'ok');
+  } else {
+    btn.disabled = false;
+    btn.textContent = '⚡ Lietot';
+    showToast('❌ ' + data.error, 'err');
+  }
+}
+
+async function unequipSkin() {
+  await fetch('/api/shop/unequip', { method: 'POST' });
+  location.reload();
+}
+
 async function buyItem(id, btn) {
   btn.disabled = true;
   btn.textContent = '⏳';

@@ -276,6 +276,15 @@
         </div>
     </div>
 
+    {% if profile.equipped_skin_name %}
+    <div class="stat-row">
+    <span class="stat-label">Aktīvais izskats</span>
+    <span class="stat-val" style="color:#a855f7">
+        🃏 {{ profile.equipped_skin_name }}
+    </span>
+    </div>
+    {% endif %}
+
     <!-- ── RIGHT: details + edit ── -->
     <div class="profile-right">
 
