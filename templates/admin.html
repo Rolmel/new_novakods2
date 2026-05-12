@@ -175,6 +175,7 @@ tr:hover td { background: rgba(255,255,255,.015); }
     <div class="tab" onclick="switchTab('predictions', this)">📈 Predictions</div>
     <div class="tab" onclick="switchTab('clubs', this)">🏛️ Clubs</div>
     <div class="tab" onclick="switchTab('canvas', this)">🎨 Canvas</div>
+    <div class="tab" onclick="switchTab('tournaments', this)">🏆 Tournaments</div>
   </div>
 
   <!-- ══════════ USERS TAB ══════════ -->
@@ -472,10 +473,65 @@ tr:hover td { background: rgba(255,255,255,.015); }
   </div>
 </div>
 
+<div class="tab-section" id="tab-tournaments">
+  <div class="panel">
+    <div class="panel-bar">
+      <span class="panel-bar-title">TOURNAMENTS</span>
+    </div>
+    <div style="padding:16px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+        <div class="field"><label>Name</label><input type="text" id="tn-name" placeholder="Weekend Slots Cup"></div>
+        <div class="field"><label>Game</label>
+          <select id="tn-game">
+            <option value="slots">Slots</option>
+          </select>
+        </div>
+        <div class="field"><label>Entry fee (coins)</label><input type="number" id="tn-fee" value="0" min="0"></div>
+        <div class="field"><label>Start chips</label><input type="number" id="tn-chips" value="1000" min="100"></div>
+        <div class="field"><label>Max players</label><input type="number" id="tn-max" value="50" min="2"></div>
+        <div class="field"><label>Description</label><input type="text" id="tn-desc" placeholder="Optional"></div>
+        <div class="field"><label>Starts at</label><input type="datetime-local" id="tn-starts"></div>
+        <div class="field"><label>Ends at</label><input type="datetime-local" id="tn-ends"></div>
+      </div>
+      <button class="mbtn mbtn-save" onclick="createTournament()" style="width:100%">
+        🏆 Create Tournament
+      </button>
+      <div id="tn-msg" style="margin-top:8px;font-size:0.85rem;display:none;"></div>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
 // ── Tab switching ──
+async function createTournament() {
+  const msg = document.getElementById('tn-msg');
+  msg.style.display = 'block';
+  msg.textContent = '⏳ Creating...';
+  const res  = await fetch('/api/admin/tournaments', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      name:        document.getElementById('tn-name').value,
+      game:        document.getElementById('tn-game').value,
+      entry_fee:   parseInt(document.getElementById('tn-fee').value)  || 0,
+      start_coins: parseInt(document.getElementById('tn-chips').value) || 1000,
+      max_players: parseInt(document.getElementById('tn-max').value)   || 50,
+      description: document.getElementById('tn-desc').value,
+      starts_at:   document.getElementById('tn-starts').value,
+      ends_at:     document.getElementById('tn-ends').value,
+    })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    msg.style.color = 'var(--green)';
+    msg.textContent = `✅ Created! ID: ${data.id}`;
+  } else {
+    msg.style.color = 'var(--red)';
+    msg.textContent = '❌ ' + data.error;
+  }
+}
+
+
 function switchTab(name, el) {
   document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));

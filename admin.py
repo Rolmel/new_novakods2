@@ -31,6 +31,437 @@ from redis_games import (
 from win_card import generate_win_card
 from flask import Response
 
+def _tournament_leaderboard(conn, tournament_id: int, limit: int = 10):
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT te.user_id, u.username,
+               te.chips, te.games_played, te.best_win,
+               RANK() OVER (ORDER BY te.chips DESC) AS place
+        FROM tournament_entries te
+        JOIN users u ON u.id = te.user_id
+        WHERE te.tournament_id = %s
+        ORDER BY te.chips DESC
+        LIMIT %s
+    """, (tournament_id, limit))
+    rows = cur.fetchall()
+    cur.close()
+    return [dict(r) for r in rows]
+
+
+def _tournament_payout_tiers(prize_pool: int, player_count: int) -> list[dict]:
+    """
+    Returns list of {place, pct, amount} sorted by place.
+    Always pays at least top-3 if enough players exist.
+    """
+    if player_count < 2:
+        return [{'place': 1, 'pct': 100, 'amount': prize_pool}]
+
+    tiers = [
+        {'place': 1, 'pct': 50},
+        {'place': 2, 'pct': 30},
+        {'place': 3, 'pct': 20},
+    ]
+    # Trim to actual player count
+    tiers = tiers[:player_count]
+
+    # Re-normalise so they sum to 100
+    total = sum(t['pct'] for t in tiers)
+    result = []
+    distributed = 0
+    for i, t in enumerate(tiers):
+        if i == len(tiers) - 1:
+            amount = prize_pool - distributed
+        else:
+            amount = round(prize_pool * t['pct'] / total)
+            distributed += amount
+        result.append({'place': t['place'], 'pct': t['pct'], 'amount': amount})
+    return result
+
+
+@app.route('/api/tournaments/<int:tid>/join', methods=['POST'])
+@login_required
+def api_tournament_join(tid):
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT * FROM tournaments WHERE id = %s", (tid,))
+    t = cur.fetchone()
+    if not t:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav atrasts'}), 404
+    if t['status'] != 'active':
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Turnīrs nav aktīvs'}), 400
+
+    cur.execute(
+        "SELECT id FROM tournament_entries WHERE tournament_id = %s AND user_id = %s",
+        (tid, user_id)
+    )
+    if cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Jau piedalies'}), 400
+
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM tournament_entries WHERE tournament_id = %s", (tid,)
+    )
+    if cur.fetchone()['n'] >= t['max_players']:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Turnīrs pilns'}), 400
+
+    # Deduct entry fee from real wallet
+    balance = get_or_create_balance(conn, user_id)
+    if t['entry_fee'] > 0:
+        if balance < t['entry_fee']:
+            conn.close()
+            return jsonify({'ok': False, 'error': 'Nepietiek monētu'}), 400
+        balance -= t['entry_fee']
+        cur2 = conn.cursor()
+        cur2.execute(
+            "UPDATE wallets SET balance = %s WHERE user_id = %s",
+            (balance, user_id)
+        )
+        cur2.execute(
+            "UPDATE tournaments SET prize_pool = prize_pool + %s WHERE id = %s",
+            (t['entry_fee'], tid)
+        )
+        cur2.execute(
+            """INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+               VALUES (%s, %s, 'tournament:entry', %s, %s)""",
+            (user_id, -t['entry_fee'], str(tid), balance)
+        )
+        cur2.close()
+
+    cur3 = conn.cursor()
+    cur3.execute(
+        """INSERT INTO tournament_entries (tournament_id, user_id, chips)
+           VALUES (%s, %s, %s)""",
+        (tid, user_id, t['start_coins'])
+    )
+    conn.commit()
+    cur3.close()
+    cur.close()
+    conn.close()
+
+    socketio.emit('tournament_update', {'tournament_id': tid},
+                  room=f'tournament_{tid}')
+    return jsonify({'ok': True, 'chips': t['start_coins'], 'balance': balance})
+
+@app.route('/api/tournaments/<int:tid>/resolve', methods=['POST'])
+@login_required
+@admin_required
+def api_tournament_resolve(tid):
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT prize_pool FROM tournaments WHERE id = %s", (tid,))
+    t = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not t:
+        return jsonify({'ok': False, 'error': 'Nav atrasts'})
+
+    conn2 = get_db_connection()
+    _resolve_tournament(conn2, tid)
+    conn2.close()
+    return jsonify({'ok': True, 'prize_pool': t['prize_pool']})
+
+
+@app.route('/api/tournaments/<int:tid>/play/slots', methods=['POST'])
+@login_required
+def api_tournament_slots(tid):
+    user_id = session['user_id']
+    data    = request.json or {}
+    bet     = int(data.get('bet', 10))
+
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute(
+        "SELECT * FROM tournament_entries WHERE tournament_id = %s AND user_id = %s",
+        (tid, user_id)
+    )
+    entry = cur.fetchone()
+    if not entry:
+        conn.close()
+        return jsonify({'error': 'Nav reģistrēts šim turnīram'}), 400
+
+    cur.execute("SELECT status FROM tournaments WHERE id = %s", (tid,))
+    t = cur.fetchone()
+    if not t or t['status'] != 'active':
+        conn.close()
+        return jsonify({'error': 'Turnīrs nav aktīvs'}), 400
+
+    chips = entry['chips']
+    if bet <= 0 or bet > chips:
+        conn.close()
+        return jsonify({'error': 'Nepareizs likmjums'}), 400
+
+    # Same slots logic as real game
+    SYMBOLS = ['🍒', '🍋', '🔔', '⭐', '7️⃣', '💎']
+    WEIGHTS  = [30, 25, 20, 15, 8, 2]
+    reels    = random.choices(SYMBOLS, weights=WEIGHTS, k=3)
+
+    if reels[0] == reels[1] == reels[2]:
+        mults = {'💎': 50, '7️⃣': 20, '⭐': 10, '🔔': 7, '🍋': 5, '🍒': 3}
+        mult  = mults.get(reels[0], 3)
+        net   = bet * mult - bet
+        result = f"JACKPOT! {reels[0]*3} x{mult}"
+    elif len(set(reels)) < 3:
+        net    = int(bet * 0.5)
+        result = "Divi vienādi"
+    else:
+        net    = -bet
+        result = "Neveiksmīgi"
+
+    chips += net
+    chips  = max(0, chips)
+
+    best_win = max(entry['best_win'], net) if net > 0 else entry['best_win']
+
+    cur2 = conn.cursor()
+    cur2.execute(
+        """UPDATE tournament_entries
+           SET chips = %s, games_played = games_played + 1, best_win = %s
+           WHERE tournament_id = %s AND user_id = %s""",
+        (chips, best_win, tid, user_id)
+    )
+    conn.commit()
+    cur2.close()
+    cur.close()
+    conn.close()
+
+    socketio.emit('tournament_score', {
+        'tournament_id': tid,
+        'user_id':       user_id,
+        'username':      session.get('user_name'),
+        'chips':         chips,
+    }, room=f'tournament_{tid}')
+
+    return jsonify({
+        'reels':  reels,
+        'result': result,
+        'net':    net,
+        'chips':  chips,
+    })
+
+
+@app.route('/tournaments')
+@login_required
+def tournaments_list():
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT t.*,
+               COUNT(te.user_id) AS player_count
+        FROM tournaments t
+        LEFT JOIN tournament_entries te ON te.tournament_id = t.id
+        GROUP BY t.id
+        ORDER BY t.starts_at DESC
+    """)
+    tournaments = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return render_template('tournaments.html', tournaments=tournaments)
+
+
+@app.route('/tournaments/<int:tid>')
+@login_required
+def tournament_detail(tid):
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT * FROM tournaments WHERE id = %s", (tid,))
+    t = cur.fetchone()
+    if not t:
+        conn.close()
+        flash('Nav atrasts', 'error')
+        return redirect(url_for('tournaments_list'))
+
+    lb = _tournament_leaderboard(conn, tid)
+
+    cur.execute(
+        "SELECT * FROM tournament_entries WHERE tournament_id=%s AND user_id=%s",
+        (tid, user_id)
+    )
+    my_entry = cur.fetchone()
+
+    # Payouts (only relevant for finished)
+    cur.execute(
+        "SELECT * FROM tournament_payouts WHERE tournament_id = %s", (tid,)
+    )
+    payouts = cur.fetchall()
+
+    balance = get_or_create_balance(conn, user_id)
+    cur.close()
+    conn.close()
+
+    return render_template('tournament_detail.html',
+                           t=dict(t), lb=lb,
+                           my_entry=dict(my_entry) if my_entry else None,
+                           payouts=[dict(p) for p in payouts],
+                           balance=balance,
+                           user_id=user_id,
+                           is_admin=session.get('is_admin'))
+
+
+@socketio.on('join_tournament_room')
+def on_join_tournament_room(data):
+    join_room(f'tournament_{int(data.get("tid", 0))}')
+
+@app.route('/api/admin/tournaments', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_create_tournament():
+    d = request.json or {}
+    name        = d.get('name', '').strip()[:100]
+    description = d.get('description', '').strip()
+    game        = d.get('game', 'slots')
+    entry_fee   = int(d.get('entry_fee', 0))
+    start_coins = int(d.get('start_coins', 1000))
+    starts_at   = d.get('starts_at')
+    ends_at     = d.get('ends_at')
+    max_players = int(d.get('max_players', 100))
+
+    if not name or not starts_at or not ends_at:
+        return jsonify({'ok': False, 'error': 'Trūkst lauki'}), 400
+
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    cur.execute("""
+        INSERT INTO tournaments
+            (name, description, game, entry_fee, start_coins,
+             starts_at, ends_at, max_players, created_by, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,
+            CASE WHEN %s::timestamptz <= NOW() THEN 'active' ELSE 'upcoming' END)
+        RETURNING id
+    """, (name, description, game, entry_fee, start_coins,
+          starts_at, ends_at, max_players, session['user_id'], starts_at))
+    tid = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True, 'id': tid})
+
+@app.route('/api/tournaments/<int:tid>/leaderboard')
+@login_required
+def api_tournament_leaderboard(tid):
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT prize_pool FROM tournaments WHERE id = %s", (tid,))
+    t = cur.fetchone()
+    cur.close()
+    conn.close()
+    lb = _tournament_leaderboard(get_db_connection(), tid, limit=50)
+    return jsonify({'lb': lb, 'prize_pool': t['prize_pool'] if t else 0})
+
+@app.route('/api/admin/tournaments/<int:tid>/activate', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_tournament_activate(tid):
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    cur.execute(
+        "UPDATE tournaments SET status = 'active' WHERE id = %s AND status = 'upcoming'",
+        (tid,)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True})
+
+def _start_tournament_scheduler():
+    """
+    Runs every 30 s. Activates tournaments whose start_time has passed,
+    resolves those whose end_time has passed.
+    """
+    def loop():
+        while True:
+            socketio.sleep(30)
+            try:
+                conn = get_db_connection()
+                cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+                # Activate upcoming tournaments
+                cur.execute("""
+                    UPDATE tournaments SET status = 'active'
+                    WHERE status = 'upcoming' AND starts_at <= NOW()
+                    RETURNING id, name
+                """)
+                for row in cur.fetchall():
+                    app.logger.info(f'[tournament] activated {row["id"]} {row["name"]}')
+                    socketio.emit('tournament_update', {'tournament_id': row['id']})
+
+                conn.commit()
+
+                # Find active tournaments past end time
+                cur.execute("""
+                    SELECT id FROM tournaments
+                    WHERE status = 'active' AND ends_at <= NOW()
+                """)
+                expired = [r['id'] for r in cur.fetchall()]
+                cur.close()
+                conn.close()
+
+                for tid in expired:
+                    try:
+                        conn2 = get_db_connection()
+                        _resolve_tournament(conn2, tid)
+                        conn2.close()
+                    except Exception as e:
+                        app.logger.error(f'[tournament] resolve error tid={tid}: {e}')
+
+            except Exception as e:
+                app.logger.error(f'[tournament scheduler] {e}')
+
+    socketio.start_background_task(loop)
+
+def _resolve_tournament(conn, tid: int):
+    """Shared logic used by scheduler and admin manual resolve."""
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM tournaments WHERE id = %s", (tid,))
+    t = cur.fetchone()
+    if not t or t['status'] == 'finished':
+        cur.close()
+        return
+
+    lb    = _tournament_leaderboard(conn, tid, limit=100)
+    tiers = _tournament_payout_tiers(t['prize_pool'], len(lb))
+
+    cur2 = conn.cursor()
+    for tier in tiers:
+        if tier['place'] - 1 >= len(lb):
+            break
+        winner = lb[tier['place'] - 1]
+        uid    = winner['user_id']
+        amount = tier['amount']
+        if amount <= 0:
+            continue
+        w_bal = get_or_create_balance(conn, uid) + amount
+        cur2.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (w_bal, uid))
+        cur2.execute(
+            """INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+               VALUES (%s, %s, 'tournament:payout', %s, %s)""",
+            (uid, amount, str(tid), w_bal)
+        )
+        cur2.execute(
+            """INSERT INTO tournament_payouts (tournament_id, user_id, place, amount)
+               VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING""",
+            (tid, uid, tier['place'], amount)
+        )
+
+    cur2.execute("UPDATE tournaments SET status = 'finished' WHERE id = %s", (tid,))
+    conn.commit()
+    cur2.close()
+    cur.close()
+
+    socketio.emit('tournament_finished', {
+        'tournament_id': tid,
+        'leaderboard':   lb[:10],
+        'tiers':         tiers,
+    }, room=f'tournament_{tid}')
+    app.logger.info(f'[tournament] resolved tid={tid}, paid {len(tiers)} players')
+
 @app.route('/api/win_card')
 @login_required
 def api_win_card():
@@ -3207,5 +3638,6 @@ if __name__ == '__main__':
     init_db()
     init_redis()
     _start_crash_loop()
+    _start_tournament_scheduler()          # ← add this
     _HOLDEM_TABLES.update(_init_holdem_tables())
     socketio.run(app, debug=False, host='0.0.0.0', port=5000)

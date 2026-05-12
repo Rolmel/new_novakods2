@@ -1,0 +1,445 @@
+{% extends "base.html" %}
+{% block title %}🏆 {{ t.name }}{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; --blue:#2196f3; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:900px; margin:0 auto; padding:24px 20px; }
+.back-link { color:var(--gold); text-decoration:none; display:inline-block; margin-bottom:16px; }
+.t-header {
+  background:radial-gradient(ellipse at top, #1a0a00 0%, #0a0a0f 70%);
+  border:1px solid var(--gold); border-radius:16px; padding:28px; text-align:center;
+  margin-bottom:20px; position:relative;
+}
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); margin:0 0 6px; font-size:1.6rem; }
+.t-desc { color:#666; margin-bottom:16px; }
+.meta-chips { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin-bottom:14px; }
+.meta-chip {
+  background:#1a1a2e; border:1px solid #2a2a3a; border-radius:20px;
+  padding:5px 16px; font-size:0.85rem; color:#aaa;
+}
+.meta-chip b { color:var(--gold); }
+.prize-display { font-size:1.4rem; font-weight:700; color:var(--gold); margin-bottom:10px; }
+.countdown-bar {
+  background:#0a0a14; border:1px solid #2a2a3a; border-radius:10px;
+  padding:8px 16px; display:inline-block; font-size:0.9rem; color:#888;
+}
+.countdown-bar b { color:var(--green); font-size:1.1rem; }
+.countdown-bar.ending b { color:var(--red); }
+.layout { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+@media(max-width:700px){ .layout { grid-template-columns:1fr; } }
+.panel { background:#111118; border:1px solid #2a2a3a; border-radius:14px; padding:20px; }
+.panel-title { color:var(--gold); font-weight:700; font-size:0.9rem;
+               text-transform:uppercase; letter-spacing:1px; margin-bottom:14px; }
+
+/* LEADERBOARD */
+.lb-row {
+  display:flex; align-items:center; gap:10px;
+  padding:8px 0; border-bottom:1px solid #111120;
+}
+.lb-row:last-child { border:none; }
+.lb-rank { min-width:28px; font-weight:700; color:#555; font-size:0.85rem; }
+.lb-rank.p1 { color:#f5c842; }
+.lb-rank.p2 { color:#c0c0c0; }
+.lb-rank.p3 { color:#cd7f32; }
+.lb-name { flex:1; font-weight:600; }
+.lb-name.me { color:var(--gold); }
+.lb-chips { color:var(--gold); font-weight:700; }
+.lb-games { color:#444; font-size:0.78rem; margin-left:8px; }
+.lb-payout-row {
+  display:flex; justify-content:space-between;
+  padding:6px 0; border-bottom:1px solid #111120; font-size:0.83rem;
+}
+.payout-place { color:#888; }
+.payout-amt { color:var(--green); font-weight:700; }
+
+/* JOIN / MY STATUS */
+.join-box { text-align:center; padding:10px 0; }
+.join-btn {
+  width:100%; padding:14px; background:linear-gradient(135deg,#f5c842,#e6a800);
+  border:none; border-radius:12px; font-family:'Rajdhani',sans-serif;
+  font-size:1.1rem; font-weight:700; color:#000; cursor:pointer; margin-bottom:8px;
+}
+.join-btn:disabled { opacity:.4; cursor:not-allowed; }
+.my-chips-display { text-align:center; margin:8px 0 14px; }
+.my-chips-display .val { font-size:2rem; font-weight:700; color:var(--gold); }
+.my-chips-display .lbl { font-size:0.72rem; color:#444; text-transform:uppercase;
+                          letter-spacing:1px; }
+.my-rank { color:#888; font-size:0.82rem; text-align:center; margin-bottom:12px; }
+
+/* SLOTS (tournament version) */
+.slot-machine {
+  background:linear-gradient(145deg,#1a1a2e,#16162a);
+  border:2px solid var(--gold); border-radius:16px; padding:20px; margin-top:16px;
+}
+.slot-reels { display:flex; gap:8px; justify-content:center; margin:12px 0; }
+.slot-reel {
+  width:64px; height:64px; background:#0a0a14; border:2px solid #333;
+  border-radius:10px; display:flex; align-items:center; justify-content:center;
+  font-size:2rem;
+}
+.slot-reel.spinning { animation:sreel .12s linear infinite; }
+@keyframes sreel { 0%{transform:translateY(-4px)} 50%{transform:translateY(4px)} 100%{transform:translateY(-4px)} }
+.slot-bet-row { display:flex; align-items:center; justify-content:center; gap:10px; margin:10px 0; }
+.slot-bet-row button {
+  width:30px; height:30px; background:#1a1a2e; border:1px solid var(--gold);
+  color:var(--gold); border-radius:6px; cursor:pointer;
+}
+.slot-spin-btn {
+  width:100%; padding:12px; background:linear-gradient(135deg,#f5c842,#e6a800);
+  border:none; border-radius:10px; font-family:'Rajdhani',sans-serif;
+  font-size:1.1rem; font-weight:700; color:#000; cursor:pointer; margin-top:6px;
+}
+.slot-spin-btn:disabled { opacity:.4; cursor:not-allowed; }
+.slot-result { padding:8px; border-radius:8px; margin:8px 0; font-weight:600;
+               font-size:0.9rem; min-height:36px; text-align:center; }
+.win  { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+.loss { background:#ff174422; border:1px solid var(--red); color:#ff8888; }
+.neutral { background:#1a1a24; border:1px solid #333; color:#888; }
+
+/* STATUS BANNERS */
+.status-banner {
+  text-align:center; padding:16px; border-radius:10px; margin-bottom:16px;
+  font-weight:700; font-size:1rem;
+}
+.banner-upcoming { background:#f5c84218; border:1px solid #f5c84244; color:var(--gold); }
+.banner-finished { background:#1a1a24; border:1px solid #333; color:#888; }
+.banner-win { background:#00e67622; border:1px solid var(--green); color:var(--green); }
+
+/* PAYOUT TABLE */
+.payout-tiers { margin-top:10px; }
+.trophy-row { font-size:0.78rem; }
+</style>
+
+<div class="page">
+  <a href="/tournaments" class="back-link">← Atpakaļ uz turnīriem</a>
+
+  <div class="t-header">
+    <h1>🏆 {{ t.name }}</h1>
+    <div class="t-desc">{{ t.description or 'Spēlē, liec rekordus, uzvar balvas!' }}</div>
+    <div class="meta-chips">
+      <div class="meta-chip">🎮 <b>{{ t.game }}</b></div>
+      <div class="meta-chip">🏁 <b>{{ t.start_coins }}</b> sākuma chips</div>
+      <div class="meta-chip">👥 <span id="player-count">{{ lb | length }}</span>/<b>{{ t.max_players }}</b></div>
+      {% if t.entry_fee > 0 %}
+      <div class="meta-chip">🎟️ Ieejas maksa: <b>{{ t.entry_fee }} coins</b></div>
+      {% else %}
+      <div class="meta-chip" style="border-color:#00e67644;color:var(--green)">🎟️ <b>Bezmaksas</b></div>
+      {% endif %}
+    </div>
+    <div class="prize-display">💰 Balvu fonds: <span id="prize-pool">{{ t.prize_pool }}</span> coins</div>
+    {% if t.status == 'active' %}
+    <div class="countdown-bar" id="cbar" data-ends="{{ t.ends_at.isoformat() }}">
+      Beidzas pēc: <b id="cdown">...</b>
+    </div>
+    {% elif t.status == 'upcoming' %}
+    <div class="countdown-bar" data-starts="{{ t.starts_at.isoformat() }}">
+      Sākas pēc: <b id="cdown">...</b>
+    </div>
+    {% else %}
+    <div class="countdown-bar" style="border-color:#333;color:#555">✅ Turnīrs pabeigts</div>
+    {% endif %}
+  </div>
+
+  {% if t.status == 'finished' %}
+  <div class="status-banner banner-finished">🏁 Šis turnīrs ir noslēdzies. Rezultāti zemāk.</div>
+  {% elif t.status == 'upcoming' %}
+  <div class="status-banner banner-upcoming">⏳ Turnīrs vēl nav sācies. Reģistrēties var jau tagad!</div>
+  {% endif %}
+
+  <div class="layout">
+    <!-- LEFT: leaderboard + payouts -->
+    <div>
+      <div class="panel">
+        <div class="panel-title">🏅 Līderu saraksts</div>
+        <div id="lb-list">
+          {% if lb %}
+            {% for p in lb %}
+            <div class="lb-row">
+              <div class="lb-rank {{ 'p1' if p.place==1 else 'p2' if p.place==2 else 'p3' if p.place==3 else '' }}">
+                {% if p.place == 1 %}🥇{% elif p.place == 2 %}🥈{% elif p.place == 3 %}🥉{% else %}#{{ p.place }}{% endif %}
+              </div>
+              <div class="lb-name {{ 'me' if p.user_id == user_id else '' }}">
+                {{ p.username }}{% if p.user_id == user_id %} ★{% endif %}
+              </div>
+              <div class="lb-chips">{{ p.chips }}</div>
+              <div class="lb-games">{{ p.games_played }} spēles</div>
+            </div>
+            {% endfor %}
+          {% else %}
+          <div style="color:#333;text-align:center;padding:24px">Nav spēlētāju vēl.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px;">
+        <div class="panel-title">💰 Izmaksu plāns</div>
+        <div class="payout-tiers">
+          {% set pool = t.prize_pool if t.prize_pool > 0 else (t.entry_fee * t.max_players) %}
+          {% set tiers = [
+            {'place': 1, 'emoji': '🥇', 'pct': 50},
+            {'place': 2, 'emoji': '🥈', 'pct': 30},
+            {'place': 3, 'emoji': '🥉', 'pct': 20},
+          ] %}
+          {% for tier in tiers %}
+          <div class="lb-payout-row trophy-row">
+            <span class="payout-place">{{ tier.emoji }} {{ tier.place }}. vieta</span>
+            <span class="payout-amt">~{{ (pool * tier.pct / 100) | int }} coins</span>
+          </div>
+          {% endfor %}
+          {% if t.entry_fee == 0 %}
+          <div style="color:#444;font-size:0.72rem;margin-top:8px;text-align:center">
+            Balvu fonds pieaug ar reģistrācijām
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: join / play panel -->
+    <div>
+      <div class="panel">
+        {% if t.status == 'finished' %}
+          {% set my_payout = payouts | selectattr('user_id', 'equalto', user_id) | first | default(none) %}
+          {% if my_payout %}
+          <div class="status-banner banner-win" style="margin-bottom:12px">
+            🎉 Tu ieguvi {{ my_payout.amount }} coins! ({{ my_payout.place }}. vieta)
+          </div>
+          {% endif %}
+          <div style="color:#555;text-align:center;padding:20px">Turnīrs noslēdzies.</div>
+
+        {% elif t.status == 'upcoming' %}
+          {% if my_entry %}
+          <div class="status-banner banner-upcoming" style="margin-bottom:12px">
+            ✅ Reģistrēts! Gaidiet sākumu.
+          </div>
+          {% else %}
+          <div class="join-box">
+            <div style="color:#888;font-size:0.85rem;margin-bottom:12px">
+              Reģistrējies tagad — turnīrs sāksies automātiski.
+            </div>
+            <button class="join-btn" onclick="joinTournament()">
+              🎟️ {% if t.entry_fee > 0 %}Pievienoties ({{ t.entry_fee }} coins){% else %}Pievienoties (Bezmaksas){% endif %}
+            </button>
+          </div>
+          {% endif %}
+
+        {% else %} {# active #}
+          {% if my_entry %}
+          <div class="my-chips-display">
+            <div class="lbl">Tavi chips</div>
+            <div class="val" id="my-chips">{{ my_entry.chips }}</div>
+          </div>
+          <div class="my-rank" id="my-rank-txt">Aprēķina...</div>
+          <div class="slot-machine">
+            <div class="slot-reels">
+              <div class="slot-reel" id="sr0">🎰</div>
+              <div class="slot-reel" id="sr1">🎰</div>
+              <div class="slot-reel" id="sr2">🎰</div>
+            </div>
+            <div class="slot-result neutral" id="slot-result">Spiedi griezt!</div>
+            <div class="slot-bet-row">
+              <button onclick="changeBet(-10)">−</button>
+              <span>Likme: <b id="bet-val">10</b></span>
+              <button onclick="changeBet(10)">+</button>
+            </div>
+            <button class="slot-spin-btn" id="spin-btn" onclick="spinSlots()">🎰 GRIEZT</button>
+          </div>
+          {% else %}
+          <div class="join-box">
+            <div style="color:#888;font-size:0.85rem;margin-bottom:12px">
+              Turnīrs ir aktīvs! Pievienojies un sāc spēlēt.
+            </div>
+            <button class="join-btn" onclick="joinTournament()">
+              🎟️ {% if t.entry_fee > 0 %}Pievienoties ({{ t.entry_fee }} coins){% else %}Pievienoties{% endif %}
+            </button>
+          </div>
+          {% endif %}
+        {% endif %}
+      </div>
+
+      {% if is_admin and t.status != 'finished' %}
+      <div class="panel" style="margin-top:16px;border-color:#2a1a1a;">
+        <div class="panel-title" style="color:var(--red)">⚙️ Admin</div>
+        {% if t.status == 'upcoming' %}
+        <button onclick="adminAction('activate')"
+                style="width:100%;padding:10px;background:#1a1a2e;border:1px solid #2196f3;
+                       color:#2196f3;border-radius:8px;cursor:pointer;font-family:'Rajdhani',sans-serif;
+                       font-weight:700;margin-bottom:8px;">
+          ▶ Aktivizēt tūlīt
+        </button>
+        {% endif %}
+        <button onclick="adminAction('resolve')"
+                style="width:100%;padding:10px;background:#1a0a0a;border:1px solid #ff1744;
+                       color:#ff1744;border-radius:8px;cursor:pointer;font-family:'Rajdhani',sans-serif;
+                       font-weight:700;">
+          🏁 Noslēgt un izmaksāt
+        </button>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<script>
+const TID      = {{ t.id }};
+const ME       = {{ user_id }};
+const STATUS   = '{{ t.status }}';
+const SYMBOLS  = ['🍒','🍋','🔔','⭐','7️⃣','💎'];
+let bet        = 10;
+let spinning   = false;
+
+const socket = io({ transports: ['websocket','polling'] });
+socket.on('connect', () => socket.emit('join_tournament_room', { tid: TID }));
+
+socket.on('tournament_update', () => fetchLB());
+socket.on('tournament_score',  d => {
+  if (d.tournament_id !== TID) return;
+  if (d.user_id === ME) {
+    const el = document.getElementById('my-chips');
+    if (el) el.textContent = d.chips;
+  }
+  fetchLB();
+});
+socket.on('tournament_finished', d => {
+  if (d.tournament_id !== TID) return;
+  location.reload();
+});
+
+async function fetchLB() {
+  const res  = await fetch(`/api/tournaments/${TID}/leaderboard`);
+  const data = await res.json();
+  if (!data.lb) return;
+
+  const list = document.getElementById('lb-list');
+  if (!list) return;
+  list.innerHTML = data.lb.map(p => {
+    const rankCls = p.place <= 3 ? `p${p.place}` : '';
+    const medal   = p.place===1 ? '🥇' : p.place===2 ? '🥈' : p.place===3 ? '🥉' : `#${p.place}`;
+    const me      = p.user_id === ME ? ' me' : '';
+    const star    = p.user_id === ME ? ' ★' : '';
+    return `<div class="lb-row">
+      <div class="lb-rank ${rankCls}">${medal}</div>
+      <div class="lb-name${me}">${p.username}${star}</div>
+      <div class="lb-chips">${p.chips}</div>
+      <div class="lb-games">${p.games_played} spēles</div>
+    </div>`;
+  }).join('') || '<div style="color:#333;text-align:center;padding:24px">Nav spēlētāju vēl.</div>';
+
+  const myRow = data.lb.find(p => p.user_id === ME);
+  const rankEl = document.getElementById('my-rank-txt');
+  if (rankEl && myRow) rankEl.textContent = `Tava pozīcija: #${myRow.place} no ${data.lb.length}`;
+
+  const pc = document.getElementById('player-count');
+  if (pc) pc.textContent = data.lb.length;
+  const pp = document.getElementById('prize-pool');
+  if (pp && data.prize_pool != null) pp.textContent = data.prize_pool;
+}
+
+// ── Slots ──
+function changeBet(d) {
+  const chips = parseInt(document.getElementById('my-chips')?.textContent || 9999);
+  bet = Math.max(10, Math.min(chips, bet + d));
+  document.getElementById('bet-val').textContent = bet;
+}
+
+async function spinSlots() {
+  if (spinning) return;
+  spinning = true;
+  const btn = document.getElementById('spin-btn');
+  btn.disabled = true;
+
+  const iv = setInterval(() => {
+    ['sr0','sr1','sr2'].forEach(id => {
+      document.getElementById(id).textContent = SYMBOLS[Math.floor(Math.random()*SYMBOLS.length)];
+    });
+  }, 80);
+
+  const res  = await fetch(`/api/tournaments/${TID}/play/slots`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ bet })
+  });
+  const data = await res.json();
+
+  setTimeout(() => {
+    clearInterval(iv);
+    if (data.error) {
+      document.getElementById('slot-result').className = 'slot-result loss';
+      document.getElementById('slot-result').textContent = '❌ ' + data.error;
+      spinning = false;
+      btn.disabled = false;
+      return;
+    }
+    data.reels.forEach((sym, i) =>
+      document.getElementById(`sr${i}`).textContent = sym
+    );
+    const msg = document.getElementById('slot-result');
+    if (data.net > 0) {
+      msg.className = 'slot-result win';
+      msg.textContent = `🎉 ${data.result} +${data.net}`;
+    } else {
+      msg.className = 'slot-result loss';
+      msg.textContent = `😞 ${data.result}`;
+    }
+    const chipsEl = document.getElementById('my-chips');
+    if (chipsEl) {
+      chipsEl.textContent = data.chips;
+      bet = Math.min(bet, data.chips);
+      document.getElementById('bet-val').textContent = bet;
+    }
+    spinning = false;
+    btn.disabled = false;
+  }, 1100);
+}
+
+// ── Join ──
+async function joinTournament() {
+  const res  = await fetch(`/api/tournaments/${TID}/join`, { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) { location.reload(); }
+  else { alert(data.error || 'Kļūda'); }
+}
+
+// ── Admin ──
+async function adminAction(action) {
+  if (!confirm('Tiešām?')) return;
+  if (action === 'resolve') {
+    const res  = await fetch(`/api/tournaments/${TID}/resolve`, { method: 'POST' });
+    const data = await res.json();
+    alert(data.ok ? `Izmaksāts! Fonds: ${data.prize_pool}` : data.error);
+    if (data.ok) location.reload();
+  } else if (action === 'activate') {
+    const res  = await fetch(`/api/admin/tournaments/${TID}/activate`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) location.reload();
+    else alert(data.error);
+  }
+}
+
+// ── Countdown ──
+function tickCdown() {
+  const bar    = document.getElementById('cbar');
+  const cdEl   = document.getElementById('cdown');
+  if (!bar || !cdEl) return;
+  const target = bar.dataset.ends || bar.dataset.starts;
+  if (!target) return;
+  const ms = new Date(target).getTime() - Date.now();
+  if (ms <= 0) { cdEl.textContent = '0s'; return; }
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  cdEl.textContent = h > 24 ? Math.floor(h/24)+'d' : h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${sec}s` : sec+'s';
+  if (bar.dataset.ends && ms < 3600000) bar.classList.add('ending');
+}
+tickCdown();
+setInterval(tickCdown, 1000);
+
+if (STATUS === 'active') {
+  fetchLB();
+  setInterval(fetchLB, 8000);
+}
+</script>
+{% endblock %}

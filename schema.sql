@@ -3,6 +3,46 @@
 --  Run once:  psql -U postgres -d novakods -f schema.sql
 -- ============================================================
 
+
+CREATE TABLE IF NOT EXISTS tournaments (
+    id            SERIAL PRIMARY KEY,
+    name          VARCHAR(100) NOT NULL,
+    description   TEXT         NOT NULL DEFAULT '',
+    game          TEXT         NOT NULL DEFAULT 'slots',  -- which game counts
+    entry_fee     INTEGER      NOT NULL DEFAULT 0,        -- coins from real wallet
+    start_coins   INTEGER      NOT NULL DEFAULT 1000,     -- isolated chips
+    prize_pool    INTEGER      NOT NULL DEFAULT 0,        -- auto-calculated
+    starts_at     TIMESTAMPTZ  NOT NULL,
+    ends_at       TIMESTAMPTZ  NOT NULL,
+    status        TEXT         NOT NULL DEFAULT 'upcoming', -- upcoming|active|finished
+    max_players   INTEGER      NOT NULL DEFAULT 100,
+    created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS tournament_entries (
+    id              SERIAL PRIMARY KEY,
+    tournament_id   INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    user_id         INTEGER NOT NULL REFERENCES users(id)       ON DELETE CASCADE,
+    chips           INTEGER NOT NULL,   -- current isolated chip balance
+    games_played    INTEGER NOT NULL DEFAULT 0,
+    best_win        INTEGER NOT NULL DEFAULT 0,
+    joined_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (tournament_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS tournament_payouts (
+    tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    user_id       INTEGER NOT NULL REFERENCES users(id)       ON DELETE CASCADE,
+    place         INTEGER NOT NULL,
+    amount        INTEGER NOT NULL,
+    paid_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tournament_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS tourn_entries_score
+    ON tournament_entries(tournament_id, chips DESC);
+
 CREATE TABLE IF NOT EXISTS social_feed (
     id         BIGSERIAL PRIMARY KEY,
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
