@@ -155,6 +155,7 @@ socket.on('crash_cashout_ok', d => {
   document.getElementById('balance').textContent = d.balance.toFixed(2);
   document.getElementById('btn-cashout').disabled = true;
   showMsg('💰 Izmaksāts @ ' + d.mult.toFixed(2) + 'x — +' + d.winnings.toFixed(2) + ' coins!', 'win');
+  showWinCard('crash', d.winnings, d.mult);
 });
 
 socket.on('crash_error', d => showMsg('❌ ' + d.msg, 'loss'));

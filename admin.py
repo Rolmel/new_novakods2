@@ -28,6 +28,26 @@ from redis_games import (
     bingo_new_card, bingo_call,
 )
 
+from win_card import generate_win_card
+from flask import Response
+
+@app.route('/api/win_card')
+@login_required
+def api_win_card():
+    username   = session.get('user_name', 'Spēlētājs')
+    game       = request.args.get('game', 'casino')
+    amount     = float(request.args.get('amount', 0))
+    multiplier = request.args.get('mult')
+    mult_val   = float(multiplier) if multiplier else None
+
+    if amount <= 0:
+        return '', 400
+
+    png = generate_win_card(username, game, amount, mult_val)
+    return Response(png, mimetype='image/png', headers={
+        'Content-Disposition': f'inline; filename="win_{game}.png"'
+    })
+
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'txt', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'mp4', 'mp3'}
 MAX_FILE_SIZE    = 20 * 1024 * 1024
