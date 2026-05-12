@@ -215,6 +215,57 @@ def api_shop_unequip():
     conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/shop/buy', methods=['POST'])
+@login_required
+def api_shop_buy():
+    user_id     = session['user_id']
+    cosmetic_id = int((request.json or {}).get('cosmetic_id', 0))
+ 
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+ 
+    cur.execute(
+        "SELECT * FROM cosmetics WHERE id = %s AND is_active = TRUE", (cosmetic_id,)
+    )
+    item = cur.fetchone()
+    if not item:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Prece nav atrasta'}), 404
+ 
+    cur.execute(
+        "SELECT 1 FROM user_cosmetics WHERE user_id = %s AND cosmetic_id = %s",
+        (user_id, cosmetic_id)
+    )
+    if cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Jau pieder'}), 400
+ 
+    balance = get_or_create_balance(conn, user_id)
+    if balance < item['price']:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nepietiek monētu'}), 400
+ 
+    balance -= item['price']
+    cur2 = conn.cursor()
+    cur2.execute(
+        "UPDATE wallets SET balance = %s WHERE user_id = %s",
+        (round(balance, 2), user_id)
+    )
+    cur2.execute(
+        "INSERT INTO user_cosmetics (user_id, cosmetic_id) VALUES (%s, %s)",
+        (user_id, cosmetic_id)
+    )
+    cur2.execute(
+    """INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+       VALUES (%s, %s, %s, %s, %s)""",
+    (user_id, -item['price'], 'shop:buy', str(cosmetic_id), round(balance, 2))
+    )
+    conn.commit()
+    cur2.close()
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True, 'balance': round(balance, 2)})
+
 def _tournament_leaderboard(conn, tournament_id: int, limit: int = 10):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
@@ -1357,7 +1408,7 @@ def api_slots():
     record_transaction(conn, user_id, 'slots', bet, result, winnings, balance)
     conn.commit()
     if winnings >= _FEED_MIN_WIN:
-    _post_feed(user_id, 'jackpot', 'slots', winnings,
+        _post_feed(user_id, 'jackpot', 'slots', winnings,
                message=f"{result}")
     cur.close()
     conn.close()
@@ -2466,20 +2517,24 @@ def profile_page(username):
     conn.close()
 
     # inside profile_page(), after fetching profile:
+i   s_own_profile = ('user_id' in session and session['user_id'] == owner['id'])
+
     equipped_skin_name = None
     if profile and profile.get('equipped_skin'):
-        cur2 = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur2.execute("SELECT name FROM cosmetics WHERE id=%s", (profile['equipped_skin'],))
-        skin_row = cur2.fetchone()
-        cur2.close()
+        cur.execute("SELECT name FROM cosmetics WHERE id=%s", (profile['equipped_skin'],))
+        skin_row = cur.fetchone()
         equipped_skin_name = skin_row['name'] if skin_row else None
-    profile_data['equipped_skin_name'] = equipped_skin_name
 
-    is_own_profile = ('user_id' in session and session['user_id'] == owner['id'])
+    profile_dict = dict(profile)
+    profile_dict['equipped_skin_name'] = equipped_skin_name
+
+    cur.close()
+    conn.close()
+
     return render_template(
         'profile.html',
         owner=dict(owner),
-        profile=profile_data,
+        profile=profile_dict,
         stats=stats,
         is_own_profile=is_own_profile,
         countries=[(c, c) for c in COUNTRIES],
@@ -2906,76 +2961,9 @@ def unwatch_prediction(data):
 #  COSMETICS SHOP
 # ==========================================
  
-@app.route('/shop')
-@login_required
-def shop():
-    user_id = session['user_id']
-    conn = get_db_connection()
-    balance = get_or_create_balance(conn, user_id)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        "SELECT * FROM cosmetics WHERE is_active = TRUE ORDER BY category, price"
-    )
-    items = cur.fetchall()
-    cur.execute(
-        "SELECT cosmetic_id FROM user_cosmetics WHERE user_id = %s", (user_id,)
-    )
-    owned = {row['cosmetic_id'] for row in cur.fetchall()}
-    cur.close()
-    conn.close()
-    return render_template('shop.html', items=items, owned=owned, balance=balance)
  
  
-@app.route('/api/shop/buy', methods=['POST'])
-@login_required
-def api_shop_buy():
-    user_id     = session['user_id']
-    cosmetic_id = int((request.json or {}).get('cosmetic_id', 0))
- 
-    conn = get_db_connection()
-    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
- 
-    cur.execute(
-        "SELECT * FROM cosmetics WHERE id = %s AND is_active = TRUE", (cosmetic_id,)
-    )
-    item = cur.fetchone()
-    if not item:
-        conn.close()
-        return jsonify({'ok': False, 'error': 'Prece nav atrasta'}), 404
- 
-    cur.execute(
-        "SELECT 1 FROM user_cosmetics WHERE user_id = %s AND cosmetic_id = %s",
-        (user_id, cosmetic_id)
-    )
-    if cur.fetchone():
-        conn.close()
-        return jsonify({'ok': False, 'error': 'Jau pieder'}), 400
- 
-    balance = get_or_create_balance(conn, user_id)
-    if balance < item['price']:
-        conn.close()
-        return jsonify({'ok': False, 'error': 'Nepietiek monētu'}), 400
- 
-    balance -= item['price']
-    cur2 = conn.cursor()
-    cur2.execute(
-        "UPDATE wallets SET balance = %s WHERE user_id = %s",
-        (round(balance, 2), user_id)
-    )
-    cur2.execute(
-        "INSERT INTO user_cosmetics (user_id, cosmetic_id) VALUES (%s, %s)",
-        (user_id, cosmetic_id)
-    )
-    cur2.execute(
-    """INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
-       VALUES (%s, %s, %s, %s, %s)""",
-    (user_id, -item['price'], 'shop:buy', str(cosmetic_id), round(balance, 2))
-    )
-    conn.commit()
-    cur2.close()
-    cur.close()
-    conn.close()
-    return jsonify({'ok': True, 'balance': round(balance, 2)})
+
  
  
 # ==========================================
@@ -3194,12 +3182,11 @@ def admin_panel():
     cur.execute("""
         SELECT u.id, u.username, u.is_admin, u.created_at,
                COALESCE(w.balance, 0) AS balance,
-               (SELECT COUNT(*) FROM casino_transactions WHERE user_id = u.id) AS total_games
+               (SELECT COUNT(*) FROM casino_transactions WHERE user_id = u.id) AS game_count
         FROM users u
         LEFT JOIN wallets w ON u.id = w.user_id
         ORDER BY u.id DESC
     """)
-    users = cur.fetchall()
     
     # 2. Fetch Recent Transactions
     cur.execute("""
@@ -3718,7 +3705,7 @@ def crash_cashout(data):
     )
     conn.commit()
     if net >= _FEED_MIN_WIN:
-    _post_feed(user_id, 'crash_cashout', 'crash', net,
+        _post_feed(user_id, 'crash_cashout', 'crash', net,
                multiplier=mult,
                message=f"Izmaksāja @ {mult:.2f}x")
     cur.close()
