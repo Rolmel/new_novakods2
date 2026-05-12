@@ -2479,6 +2479,179 @@ def club_detailed(club_id):
                            is_owner=is_owner)
 
 
+
+    # ==========================================
+#  ADMIN PANEL ROUTES
+# ==========================================
+
+@app.route('/admin')
+@login_required
+@admin_required
+def admin_panel():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    # 1. Fetch Users with Balances and Stats
+    cur.execute("""
+        SELECT u.id, u.username, u.is_admin, u.created_at,
+               COALESCE(w.balance, 0) AS balance,
+               (SELECT COUNT(*) FROM casino_transactions WHERE user_id = u.id) AS total_games
+        FROM users u
+        LEFT JOIN wallets w ON u.id = w.user_id
+        ORDER BY u.id DESC
+    """)
+    users = cur.fetchall()
+    
+    # 2. Fetch Recent Transactions
+    cur.execute("""
+        SELECT t.*, u.username 
+        FROM casino_transactions t
+        JOIN users u ON t.user_id = u.id
+        ORDER BY t.created_at DESC LIMIT 50
+    """)
+    transactions = cur.fetchall()
+    
+    # 3. Fetch Prediction Events
+    cur.execute("SELECT * FROM prediction_events ORDER BY id DESC")
+    predictions = cur.fetchall()
+    
+    # 4. Initial Stats for the top cards
+    stats = _get_admin_stats_dict(cur)
+    
+    cur.close()
+    conn.close()
+    return render_template('admin.html', 
+                           users=users, 
+                           transactions=transactions, 
+                           predictions=predictions, 
+                           stats=stats)
+
+@app.route('/api/admin/stats')
+@login_required
+@admin_required
+def api_admin_stats():
+    """Endpoint for the auto-refreshing stats in admin.html"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    stats = _get_admin_stats_dict(cur)
+    cur.close()
+    conn.close()
+    return jsonify({"ok": True, "stats": stats})
+
+def _get_admin_stats_dict(cur):
+    """Helper to aggregate system-wide statistics"""
+    cur.execute("SELECT COUNT(*) FROM users")
+    u_count = cur.fetchone()['count']
+    
+    cur.execute("SELECT COUNT(*) FROM casino_transactions WHERE created_at >= CURRENT_DATE")
+    b_today = cur.fetchone()['count']
+    
+    cur.execute("SELECT SUM(balance) FROM wallets")
+    t_bal = cur.fetchone()['sum'] or 0
+    
+    cur.execute("SELECT COUNT(*) FROM prediction_events WHERE status = 'open'")
+    p_open = cur.fetchone()['count']
+    
+    cur.execute("SELECT COUNT(*) FROM user_files")
+    f_count = cur.fetchone()['count']
+    
+    cur.execute("SELECT COUNT(*) FROM chat_messages")
+    m_count = cur.fetchone()['count']
+    
+    return {
+        "users": u_count,
+        "bets_today": b_today,
+        "total_balance": round(t_bal, 2),
+        "open_predictions": p_open,
+        "files": f_count,
+        "messages": m_count
+    }
+
+# --- Admin API Actions ---
+
+@app.route('/api/admin/user/<int:user_id>', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_save_user(user_id):
+    data = request.json
+    is_admin = 1 if data.get('is_admin') else 0
+    new_balance = float(data.get('balance', 0))
+    
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        # Update admin status
+        cur.execute("UPDATE users SET is_admin = %s WHERE id = %s", (is_admin, user_id))
+        
+        # Update balance and log the change
+        old_bal = get_or_create_balance(conn, user_id)
+        delta = new_balance - old_bal
+        if delta != 0:
+            cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (new_balance, user_id))
+            cur.execute("""
+                INSERT INTO wallet_log (user_id, delta, reason, balance_after) 
+                VALUES (%s, %s, %s, %s)
+            """, (user_id, delta, 'admin_edit', new_balance))
+            
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"ok": False, "error": str(e)})
+    finally:
+        conn.close()
+
+@app.route('/api/admin/prediction/<int:event_id>', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_save_prediction(event_id):
+    data = request.json
+    title = data.get('title')
+    category = data.get('category')
+    status = data.get('status')
+    
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE prediction_events 
+            SET title = %s, category = %s, status = %s 
+            WHERE id = %s
+        """, (title, category, status, event_id))
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+    finally:
+        conn.close()
+
+@app.route('/api/admin/delete/<string:obj_type>/<int:obj_id>', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_delete(obj_type, obj_id):
+    table_map = {
+        'user': 'users',
+        'transaction': 'casino_transactions',
+        'prediction': 'prediction_events'
+    }
+    table = table_map.get(obj_type)
+    if not table:
+        return jsonify({"ok": False, "error": "Invalid type"})
+        
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        # Note: Users might have foreign key constraints (wallets, files, etc.)
+        # In a real app, you'd handle cascading deletes or deactivation instead.
+        cur.execute(f"DELETE FROM {table} WHERE id = %s", (obj_id,))
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+    finally:
+        conn.close()
+
+
 if __name__ == '__main__':
     init_db()
     init_redis()
