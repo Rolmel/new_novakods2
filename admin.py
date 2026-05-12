@@ -133,6 +133,7 @@ def not_found(e):
 
 # --- MARŠRUTI ---
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html')
 
@@ -217,7 +218,7 @@ def login():
             record_attempt(ip)
             remaining = MAX_LOGIN_ATTEMPTS - len(login_attempts.get(ip, []))
             flash(f"Nepareizs lietotājvārds vai parole! (atlikuši {remaining} mēģinājumi)", 'error')
-    return render_template('login.html')
+    return render_template('index.html')
 
 @app.route('/logout')
 def logout():
@@ -225,174 +226,174 @@ def logout():
     flash("Veiksmīgi izlogojies.", 'success')
     return redirect(url_for('index'))
 
-@app.route('/bumbox')
-@login_required
-def bumbox():
-    user_id  = session['user_id']
-    user_dir = os.path.join(app.config['UPLOAD_FOLDER'], f"user_{user_id}")
-    used_mb  = round(get_dir_size(user_dir) / (1024 * 1024), 2)
+# @app.route('/bumbox')
+# @login_required
+# def bumbox():
+#     user_id  = session['user_id']
+#     user_dir = os.path.join(app.config['UPLOAD_FOLDER'], f"user_{user_id}")
+#     used_mb  = round(get_dir_size(user_dir) / (1024 * 1024), 2)
 
-    conn  = get_db_connection()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM user_files WHERE user_id = %s", (user_id,))
-    files = cur.fetchall()
-    cur.close()
-    conn.close()
-    return render_template('bumbox.html', files=files, used_mb=used_mb, max_mb=100)
+#     conn  = get_db_connection()
+#     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+#     cur.execute("SELECT * FROM user_files WHERE user_id = %s", (user_id,))
+#     files = cur.fetchall()
+#     cur.close()
+#     conn.close()
+#     return render_template('bumbox.html', files=files, used_mb=used_mb, max_mb=100)
 
-@app.route('/download/<int:file_id>')
-@login_required
-def download_file(file_id):
-    conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        "SELECT * FROM user_files WHERE id = %s AND user_id = %s",
-        (file_id, session['user_id'])
-    )
-    file_data = cur.fetchone()
-    cur.close()
-    conn.close()
+# @app.route('/download/<int:file_id>')
+# @login_required
+# def download_file(file_id):
+#     conn = get_db_connection()
+#     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+#     cur.execute(
+#         "SELECT * FROM user_files WHERE id = %s AND user_id = %s",
+#         (file_id, session['user_id'])
+#     )
+#     file_data = cur.fetchone()
+#     cur.close()
+#     conn.close()
 
-    if file_data:
-        user_dir = os.path.join(app.config['UPLOAD_FOLDER'], f"user_{session['user_id']}")
-        return send_from_directory(user_dir, file_data['filename'], as_attachment=True)
+#     if file_data:
+#         user_dir = os.path.join(app.config['UPLOAD_FOLDER'], f"user_{session['user_id']}")
+#         return send_from_directory(user_dir, file_data['filename'], as_attachment=True)
 
-    flash("Fails nav atrasts.", 'error')
-    return redirect(url_for('bumbox'))
+#     flash("Fails nav atrasts.", 'error')
+#     return redirect(url_for('bumbox'))
 
-@app.route('/upload', methods=['GET', 'POST'])
-@login_required
-def upload():
-    if request.method == 'GET':
-        return redirect(url_for('bumbox'))
-    if 'file' not in request.files:
-        flash('Sistēmas kļūda: fails netika saņemts.', 'error')
-        return redirect(url_for('bumbox'))
+# @app.route('/upload', methods=['GET', 'POST'])
+# @login_required
+# def upload():
+#     if request.method == 'GET':
+#         return redirect(url_for('bumbox'))
+#     if 'file' not in request.files:
+#         flash('Sistēmas kļūda: fails netika saņemts.', 'error')
+#         return redirect(url_for('bumbox'))
 
-    f = request.files['file']
-    if f.filename == '':
-        flash('Lūdzu, vispirms izvēlies failu!', 'error')
-        return redirect(url_for('bumbox'))
-    if not allowed_file(f.filename):
-        flash('Šāds faila tips nav atļauts!', 'error')
-        return redirect(url_for('bumbox'))
+#     f = request.files['file']
+#     if f.filename == '':
+#         flash('Lūdzu, vispirms izvēlies failu!', 'error')
+#         return redirect(url_for('bumbox'))
+#     if not allowed_file(f.filename):
+#         flash('Šāds faila tips nav atļauts!', 'error')
+#         return redirect(url_for('bumbox'))
 
-    filename = secure_filename(f.filename)
-    user_id  = session['user_id']
-    user_dir = os.path.join(app.config['UPLOAD_FOLDER'], f"user_{user_id}")
-    os.makedirs(user_dir, exist_ok=True)
+#     filename = secure_filename(f.filename)
+#     user_id  = session['user_id']
+#     user_dir = os.path.join(app.config['UPLOAD_FOLDER'], f"user_{user_id}")
+#     os.makedirs(user_dir, exist_ok=True)
 
-    if get_dir_size(user_dir) >= MAX_FOLDER_SIZE:
-        flash('Tava krātuve ir pilna (100MB)! Izdzēs kaut ko.', 'error')
-        return redirect(url_for('bumbox'))
+#     if get_dir_size(user_dir) >= MAX_FOLDER_SIZE:
+#         flash('Tava krātuve ir pilna (100MB)! Izdzēs kaut ko.', 'error')
+#         return redirect(url_for('bumbox'))
 
-    f.save(os.path.join(user_dir, filename))
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO user_files (filename, user_id) VALUES (%s, %s)", (filename, user_id))
-    conn.commit()
-    cur.close()
-    conn.close()
-    flash(f'Fails "{filename}" veiksmīgi augšupielādēts!', 'success')
-    return redirect(url_for('bumbox'))
+#     f.save(os.path.join(user_dir, filename))
+#     conn = get_db_connection()
+#     cur = conn.cursor()
+#     cur.execute("INSERT INTO user_files (filename, user_id) VALUES (%s, %s)", (filename, user_id))
+#     conn.commit()
+#     cur.close()
+#     conn.close()
+#     flash(f'Fails "{filename}" veiksmīgi augšupielādēts!', 'success')
+#     return redirect(url_for('bumbox'))
 
-@app.route('/delete/<int:file_id>', methods=['POST'])
-@login_required
-def delete_file(file_id):
-    conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        "SELECT * FROM user_files WHERE id = %s AND user_id = %s",
-        (file_id, session['user_id'])
-    )
-    file = cur.fetchone()
-    if file:
-        user_dir  = os.path.join(app.config['UPLOAD_FOLDER'], f"user_{session['user_id']}")
-        file_path = os.path.join(user_dir, file['filename'])
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        cur.execute("DELETE FROM user_files WHERE id = %s", (file_id,))
-        conn.commit()
-        flash(f'Fails "{file["filename"]}" izdzēsts.', 'success')
-    else:
-        flash('Fails nav atrasts vai nav tava īpašums.', 'error')
-    cur.close()
-    conn.close()
-    return redirect(url_for('bumbox'))
+# @app.route('/delete/<int:file_id>', methods=['POST'])
+# @login_required
+# def delete_file(file_id):
+#     conn = get_db_connection()
+#     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+#     cur.execute(
+#         "SELECT * FROM user_files WHERE id = %s AND user_id = %s",
+#         (file_id, session['user_id'])
+#     )
+#     file = cur.fetchone()
+#     if file:
+#         user_dir  = os.path.join(app.config['UPLOAD_FOLDER'], f"user_{session['user_id']}")
+#         file_path = os.path.join(user_dir, file['filename'])
+#         if os.path.exists(file_path):
+#             os.remove(file_path)
+#         cur.execute("DELETE FROM user_files WHERE id = %s", (file_id,))
+#         conn.commit()
+#         flash(f'Fails "{file["filename"]}" izdzēsts.', 'success')
+#     else:
+#         flash('Fails nav atrasts vai nav tava īpašums.', 'error')
+#     cur.close()
+#     conn.close()
+#     return redirect(url_for('bumbox'))
 
-@app.route('/canvas')
-@login_required
-def canvas():
-    return render_template('canvas.html')
+# @app.route('/canvas')
+# @login_required
+# def canvas():
+#     return render_template('canvas.html')
 
-@app.route('/api/canvas_data')
-def get_canvas_data():
-    conn   = get_db_connection()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT x, y, color FROM canvas")
-    pixels = cur.fetchall()
-    cur.execute("""
-        SELECT u.username, s.count FROM canvas_scores s
-        JOIN users u ON s.user_id = u.id ORDER BY s.count DESC LIMIT 10
-    """)
-    scores = cur.fetchall()
-    cur.close()
-    conn.close()
-    return jsonify({"pixels": [dict(p) for p in pixels], "scores": [dict(s) for s in scores]})
+# @app.route('/api/canvas_data')
+# def get_canvas_data():
+#     conn   = get_db_connection()
+#     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+#     cur.execute("SELECT x, y, color FROM canvas")
+#     pixels = cur.fetchall()
+#     cur.execute("""
+#         SELECT u.username, s.count FROM canvas_scores s
+#         JOIN users u ON s.user_id = u.id ORDER BY s.count DESC LIMIT 10
+#     """)
+#     scores = cur.fetchall()
+#     cur.close()
+#     conn.close()
+#     return jsonify({"pixels": [dict(p) for p in pixels], "scores": [dict(s) for s in scores]})
 
-@app.route('/api/place', methods=['POST'])
-def place_pixel():
-    if 'user_id' not in session:
-        return jsonify({"error": "No auth"}), 401
-    data = request.json
-    x, y = data.get('x'), data.get('y')
-    color = data.get('color', '')
-    if not isinstance(x, int) or not isinstance(y, int):
-        return jsonify({"error": "Invalid coordinates"}), 400
-    if not re.match(r'^#[0-9a-fA-F]{6}$', color):
-        return jsonify({"error": "Invalid color"}), 400
+# @app.route('/api/place', methods=['POST'])
+# def place_pixel():
+#     if 'user_id' not in session:
+#         return jsonify({"error": "No auth"}), 401
+#     data = request.json
+#     x, y = data.get('x'), data.get('y')
+#     color = data.get('color', '')
+#     if not isinstance(x, int) or not isinstance(y, int):
+#         return jsonify({"error": "Invalid coordinates"}), 400
+#     if not re.match(r'^#[0-9a-fA-F]{6}$', color):
+#         return jsonify({"error": "Invalid color"}), 400
 
-    uid  = session['user_id']
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO canvas (x, y, color, user_id) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (x, y) DO UPDATE SET color = EXCLUDED.color, user_id = EXCLUDED.user_id
-    """, (x, y, color, uid))
-    cur.execute(
-        "INSERT INTO canvas_scores (user_id, count) VALUES (%s, 1) ON CONFLICT (user_id) DO UPDATE SET count = canvas_scores.count + 1",
-        (uid,)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({"status": "ok"})
+#     uid  = session['user_id']
+#     conn = get_db_connection()
+#     cur = conn.cursor()
+#     cur.execute("""
+#         INSERT INTO canvas (x, y, color, user_id) VALUES (%s, %s, %s, %s)
+#         ON CONFLICT (x, y) DO UPDATE SET color = EXCLUDED.color, user_id = EXCLUDED.user_id
+#     """, (x, y, color, uid))
+#     cur.execute(
+#         "INSERT INTO canvas_scores (user_id, count) VALUES (%s, 1) ON CONFLICT (user_id) DO UPDATE SET count = canvas_scores.count + 1",
+#         (uid,)
+#     )
+#     conn.commit()
+#     cur.close()
+#     conn.close()
+#     return jsonify({"status": "ok"})
 
-# --- ADMIN ---
-@app.route('/api/clear_canvas', methods=['POST'])
-@login_required
-@admin_required
-def clear_canvas():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM canvas")
-    cur.execute("DELETE FROM canvas_scores")
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({"status": "canvas notīrīts"})
+# # --- ADMIN ---
+# @app.route('/api/clear_canvas', methods=['POST'])
+# @login_required
+# @admin_required
+# def clear_canvas():
+#     conn = get_db_connection()
+#     cur = conn.cursor()
+#     cur.execute("DELETE FROM canvas")
+#     cur.execute("DELETE FROM canvas_scores")
+#     conn.commit()
+#     cur.close()
+#     conn.close()
+#     return jsonify({"status": "canvas notīrīts"})
 
-@app.route('/admin/set_admin/<int:user_id>', methods=['POST'])
-@login_required
-@admin_required
-def set_admin(user_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET is_admin = 1 WHERE id = %s", (user_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({"status": "ok"})
+# @app.route('/admin/set_admin/<int:user_id>', methods=['POST'])
+# @login_required
+# @admin_required
+# def set_admin(user_id):
+#     conn = get_db_connection()
+#     cur = conn.cursor()
+#     cur.execute("UPDATE users SET is_admin = 1 WHERE id = %s", (user_id,))
+#     conn.commit()
+#     cur.close()
+#     conn.close()
+#     return jsonify({"status": "ok"})
 
 # --- ČATS ---
 @app.route('/site')
