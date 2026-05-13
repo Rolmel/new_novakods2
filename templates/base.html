@@ -76,5 +76,278 @@ function showWinCard(game, amount, mult) {
   document.body.appendChild(modal);
 }
 </script>
+
+{% if session.user_id %}
+<div id="fc-btn" onclick="toggleFC()">💬<span id="fc-badge" style="display:none;color:#ff1744;font-size:0.8rem;">●</span></div>
+
+<div id="fc-panel">
+  <div id="fc-header">
+    <div style="display:flex;gap:0;">
+      <button class="fc-tab active" id="tab-lobby" onclick="fcSwitchTab('lobby')">🌐 Lobby</button>
+      <button class="fc-tab" id="tab-private" onclick="fcSwitchTab('private')">🔒 Privāts</button>
+    </div>
+    <button onclick="toggleFC()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:1.1rem;">✕</button>
+  </div>
+
+  <!-- LOBBY TAB -->
+  <div id="fc-lobby" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+    <div id="fc-lobby-msgs" class="fc-msgs-box"></div>
+    <div class="fc-input-row">
+      <input id="fc-lobby-inp" placeholder="Raksti Lobby..." onkeydown="if(event.key==='Enter')fcLobbySend()">
+      <button onclick="fcLobbySend()">➤</button>
+    </div>
+  </div>
+
+  <!-- PRIVATE TAB -->
+  <div id="fc-private" style="display:none;flex:1;overflow:hidden;flex-direction:row;">
+    <div id="fc-groups-col">
+      <div id="fc-group-list"></div>
+      <div style="padding:8px;border-top:1px solid #1a1a2e;">
+        <input id="fc-new-group" placeholder="Nova grupa..." class="fc-small-inp">
+        <button onclick="fcCreateGroup()" class="fc-small-btn">+ Izveidot</button>
+      </div>
+    </div>
+    <div id="fc-priv-chat" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
+      <div id="fc-priv-msgs" class="fc-msgs-box"></div>
+      <div class="fc-input-row">
+        <input id="fc-priv-inp" placeholder="Raksti..." onkeydown="if(event.key==='Enter')fcPrivSend()">
+        <button onclick="fcPrivSend()">➤</button>
+      </div>
+    </div>
+    <div id="fc-priv-empty" style="flex:1;display:flex;align-items:center;justify-content:center;color:#333;font-size:0.85rem;">
+      ← Izvēlies grupu
+    </div>
+  </div>
+</div>
+
+<style>
+#fc-btn {
+  position:fixed;bottom:24px;right:24px;z-index:900;
+  width:52px;height:52px;border-radius:50%;
+  background:linear-gradient(135deg,#f5c842,#e6a800);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.4rem;cursor:pointer;
+  box-shadow:0 4px 20px rgba(0,0,0,0.4);
+  transition:transform .15s;user-select:none;
+}
+#fc-btn:hover{transform:scale(1.08);}
+#fc-panel {
+  position:fixed;bottom:88px;right:24px;z-index:901;
+  width:400px;height:440px;
+  background:#0f0f1a;border:1px solid #2a2a3a;border-radius:16px;
+  box-shadow:0 8px 40px rgba(0,0,0,0.6);
+  display:none;flex-direction:column;overflow:hidden;
+  font-family:'Rajdhani',sans-serif;
+}
+#fc-panel.open{display:flex;}
+#fc-header {
+  display:flex;justify-content:space-between;align-items:center;
+  background:#111118;border-bottom:1px solid #1a1a2e;
+  padding:0 10px 0 0;
+}
+.fc-tab {
+  padding:10px 16px;background:none;border:none;
+  color:#666;cursor:pointer;font-family:'Rajdhani',sans-serif;
+  font-size:0.85rem;font-weight:700;border-bottom:2px solid transparent;
+  transition:all .15s;
+}
+.fc-tab.active{color:#f5c842;border-bottom-color:#f5c842;}
+.fc-msgs-box {
+  flex:1;overflow-y:auto;padding:10px;
+  display:flex;flex-direction:column;gap:5px;
+}
+.fc-msg{font-size:0.82rem;line-height:1.4;color:#ccc;}
+.fc-msg .fc-author{font-weight:700;color:#f5c842;margin-right:5px;}
+.fc-msg.mine .fc-author{color:#00e676;}
+.fc-input-row{
+  display:flex;gap:6px;padding:8px;
+  border-top:1px solid #1a1a2e;
+}
+.fc-input-row input{
+  flex:1;padding:7px 10px;background:#0a0a14;
+  border:1px solid #333;border-radius:8px;color:#fff;
+  font-family:'Rajdhani',sans-serif;font-size:0.85rem;
+}
+.fc-input-row input:focus{outline:none;border-color:#f5c842;}
+.fc-input-row button{
+  padding:7px 12px;background:#f5c842;border:none;
+  border-radius:8px;cursor:pointer;font-weight:700;
+}
+#fc-groups-col{
+  width:140px;border-right:1px solid #1a1a2e;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+#fc-group-list{flex:1;overflow-y:auto;padding:6px;}
+.fc-group-item{
+  padding:7px 8px;border-radius:7px;cursor:pointer;
+  font-size:0.8rem;color:#aaa;margin-bottom:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:background .15s;
+}
+.fc-group-item:hover{background:#1a1a2e;color:#fff;}
+.fc-group-item.active{background:#1a1a2e;color:#f5c842;}
+.fc-small-inp{
+  width:100%;padding:6px 8px;background:#0a0a14;
+  border:1px solid #333;border-radius:6px;color:#fff;
+  font-size:0.78rem;font-family:'Rajdhani',sans-serif;
+}
+.fc-small-btn{
+  width:100%;margin-top:5px;padding:6px;
+  background:linear-gradient(135deg,#f5c842,#e6a800);
+  border:none;border-radius:6px;font-weight:700;
+  cursor:pointer;font-size:0.78rem;
+}
+@media(max-width:600px){
+  #fc-panel{width:calc(100vw - 20px);right:10px;bottom:80px;}
+}
+</style>
+
+<script>
+const FC_LOBBY_ID = 1;
+let fcOpen       = false;
+let fcTab        = 'lobby';
+let fcGroupId    = null;
+let fcMyName     = "{{ session.user_name }}";
+let fcLobbyPoll  = null;
+let fcPrivPoll   = null;
+let fcLobbyLast  = 0;
+
+function toggleFC() {
+  fcOpen = !fcOpen;
+  document.getElementById('fc-panel').classList.toggle('open', fcOpen);
+  if (fcOpen) {
+    document.getElementById('fc-badge').style.display = 'none';
+    if (fcTab === 'lobby') fcStartLobby();
+    else fcLoadGroups();
+  } else {
+    clearInterval(fcLobbyPoll);
+    clearInterval(fcPrivPoll);
+  }
+}
+
+function fcSwitchTab(tab) {
+  fcTab = tab;
+  document.getElementById('tab-lobby').classList.toggle('active', tab === 'lobby');
+  document.getElementById('tab-private').classList.toggle('active', tab === 'private');
+  document.getElementById('fc-lobby').style.display   = tab === 'lobby'   ? 'flex' : 'none';
+  document.getElementById('fc-private').style.display = tab === 'private' ? 'flex' : 'none';
+  clearInterval(fcLobbyPoll);
+  clearInterval(fcPrivPoll);
+  if (tab === 'lobby')   fcStartLobby();
+  if (tab === 'private') fcLoadGroups();
+}
+
+// ── LOBBY ──
+function fcStartLobby() {
+  fcLoadLobby();
+  fcLobbyPoll = setInterval(fcLoadLobby, 2500);
+}
+
+async function fcLoadLobby() {
+  const res  = await fetch(`/api/chat/group/${FC_LOBBY_ID}/messages`);
+  const msgs = await res.json();
+  const box  = document.getElementById('fc-lobby-msgs');
+  const atBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 15;
+  if (msgs.length > fcLobbyLast && !fcOpen) {
+    document.getElementById('fc-badge').style.display = 'inline';
+  }
+  fcLobbyLast = msgs.length;
+  fcRenderMsgs(box, msgs);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+async function fcLobbySend() {
+  const inp  = document.getElementById('fc-lobby-inp');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  await fetch(`/api/chat/group/${FC_LOBBY_ID}/messages`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({message: text})
+  });
+  fcLoadLobby();
+}
+
+// ── PRIVATE ──
+async function fcLoadGroups() {
+  const res  = await fetch('/api/chat/groups');
+  const data = await res.json();
+  const list = document.getElementById('fc-group-list');
+  list.innerHTML = '';
+  data.forEach(g => {
+    if (g.id === FC_LOBBY_ID) return; // skip lobby in private list
+    const d = document.createElement('div');
+    d.className = 'fc-group-item' + (g.id === fcGroupId ? ' active' : '');
+    d.textContent = g.name;
+    d.onclick = () => fcOpenPrivGroup(g.id, g.name);
+    list.appendChild(d);
+  });
+}
+
+function fcOpenPrivGroup(id, name) {
+  fcGroupId = id;
+  document.getElementById('fc-priv-chat').style.display  = 'flex';
+  document.getElementById('fc-priv-empty').style.display = 'none';
+  document.querySelectorAll('.fc-group-item').forEach(el =>
+    el.classList.toggle('active', el.textContent === name)
+  );
+  clearInterval(fcPrivPoll);
+  fcLoadPriv();
+  fcPrivPoll = setInterval(fcLoadPriv, 2500);
+}
+
+async function fcLoadPriv() {
+  if (!fcGroupId) return;
+  const res  = await fetch(`/api/chat/group/${fcGroupId}/messages`);
+  const msgs = await res.json();
+  const box  = document.getElementById('fc-priv-msgs');
+  const atBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 15;
+  fcRenderMsgs(box, msgs);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+async function fcPrivSend() {
+  const inp  = document.getElementById('fc-priv-inp');
+  const text = inp.value.trim();
+  if (!text || !fcGroupId) return;
+  inp.value = '';
+  await fetch(`/api/chat/group/${fcGroupId}/messages`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({message: text})
+  });
+  fcLoadPriv();
+}
+
+async function fcCreateGroup() {
+  const inp  = document.getElementById('fc-new-group');
+  const name = inp.value.trim();
+  if (!name) return;
+  inp.value = '';
+  await fetch('/api/chat/groups', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name})
+  });
+  fcLoadGroups();
+}
+
+// ── SHARED ──
+function fcRenderMsgs(box, msgs) {
+  const prev = box.scrollTop;
+  box.innerHTML = '';
+  msgs.forEach(m => {
+    const d = document.createElement('div');
+    d.className = 'fc-msg' + (m.username === fcMyName ? ' mine' : '');
+    d.innerHTML = `<span class="fc-author">${m.username}</span>${m.message}`;
+    box.appendChild(d);
+  });
+}
+
+// Auto-start lobby poll when page loads
+document.addEventListener('DOMContentLoaded', () => {
+  fcLobbyPoll = setInterval(fcLoadLobby, 5000);
+});
+</script>
+{% endif %}
+
 </body>
 </html>

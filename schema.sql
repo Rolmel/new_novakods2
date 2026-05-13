@@ -3,6 +3,29 @@
 --  Run once:  psql -U postgres -d novakods -f schema.sql
 -- ============================================================
 
+CREATE TABLE IF NOT EXISTS friendships (
+    id         SERIAL PRIMARY KEY,
+    sender_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status     TEXT NOT NULL DEFAULT 'pending', -- pending|accepted|rejected
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (sender_id, receiver_id)
+);
+
+CREATE TABLE IF NOT EXISTS direct_messages (
+    id          BIGSERIAL PRIMARY KEY,
+    sender_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message     VARCHAR(2000) NOT NULL,
+    is_read     BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS dm_conversation ON direct_messages(
+    LEAST(sender_id, receiver_id),
+    GREATEST(sender_id, receiver_id),
+    created_at ASC
+);
 
 CREATE TABLE IF NOT EXISTS tournaments (
     id            SERIAL PRIMARY KEY,

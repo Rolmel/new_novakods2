@@ -15,6 +15,7 @@ from functools import wraps
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
+import time
 load_dotenv()
 
 # --- KONFIGURĀCIJA ---
@@ -30,6 +31,225 @@ from redis_games import (
 
 from win_card import generate_win_card
 from flask import Response
+
+
+
+
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'txt', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'mp4', 'mp3'}
+MAX_FILE_SIZE    = 20 * 1024 * 1024
+MAX_FOLDER_SIZE  = 20 * 1024 * 1024
+
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_WINDOW       = 300
+login_attempts = {}
+
+app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins=os.environ.get('ALLOWED_ORIGIN', 'http://localhost:5000'))
+_secret = os.environ.get('SECRET_KEY')
+if not _secret:
+    raise RuntimeError('SECRET_KEY environment variable is not set')
+app.secret_key = _secret
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 86400
+
+BASE_DIR = Path(__file__).parent
+app.config['UPLOAD_FOLDER'] = str(BASE_DIR / "static" / "uploads")
+app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
+
+# --- DATABASE (PostgreSQL) ---
+def get_db_connection():
+    _db_url = os.environ.get('DATABASE_URL')
+    if not _db_url:
+        raise RuntimeError('DATABASE_URL environment variable is not set')
+    conn = psycopg2.connect(_db_url)
+    conn.autocommit = False
+    return conn
+
+def init_db():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT 1")
+    # ensure global lobby exists
+    cur.execute("""
+        INSERT INTO chat_groups (id, name, created_by)
+        VALUES (1, 'Lobby', NULL)
+        ON CONFLICT (id) DO NOTHING
+    """)
+    # auto-join every user to lobby is handled client-side
+    conn.commit()
+    cur.close()
+    conn.close()
+    print("[db] PostgreSQL connection OK")
+
+# --- PALĪGFUNKCIJAS ---
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def get_dir_size(path):
+    total = 0
+    if os.path.exists(path):
+        for dirpath, _, filenames in os.walk(path):
+            for f in filenames:
+                total += os.path.getsize(os.path.join(dirpath, f))
+    return total
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Lūdzu ielogojies!', 'error')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Lūdzu ielogojies!', 'error')
+            return redirect(url_for('login'))
+        if not session.get('is_admin'):
+            flash('Nav piekļuves!', 'error')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated
+
+def is_brute_force(ip):
+    now = time.time()
+    attempts = login_attempts.get(ip, [])
+    attempts = [t for t in attempts if now - t < LOGIN_WINDOW]
+    login_attempts[ip] = attempts
+    return len(attempts) >= MAX_LOGIN_ATTEMPTS
+
+def record_attempt(ip):
+    now = time.time()
+    login_attempts.setdefault(ip, []).append(now)
+
+def validate_password(password):
+    if len(password) < 8:
+        return "Parolei jābūt vismaz 8 simbolus garai!"
+    if not re.search(r'\d', password):
+        return "Parolei jāsatur vismaz viens cipars!"
+    return None
+
+def sanitize_message(text):
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+# --- KĻŪDU APSTRĀDE ---
+@app.errorhandler(413)
+def file_too_large(e):
+    flash('Fails ir pārāk liels! Maksimālais izmērs ir 10MB.', 'error')
+    return redirect(url_for('bumbox'))
+
+@app.errorhandler(404)
+def not_found(e):
+    return render_template('index.html'), 404
+
+# --- MARŠRUTI ---
+@app.route('/')
+@login_required
+def index():
+    return render_template('index.html')
+
+@app.route('/profile')
+@login_required
+def profile_redirect():
+    return redirect(url_for('profile_page', username=session['user_name']))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('user', '').strip()
+        password = request.form.get('pass', '')
+
+        if not username or not password:
+            flash("Aizpildi visus laukus!", 'error')
+            return redirect(url_for('register'))
+        if len(username) < 3 or len(username) > 30:
+            flash("Lietotājvārdam jābūt 3–30 simbolus garam!", 'error')
+            return redirect(url_for('register'))
+        if not re.match(r'^[a-zA-Z0-9_]+$', username):
+            flash("Lietotājvārds drīkst saturēt tikai burtus, ciparus un _!", 'error')
+            return redirect(url_for('register'))
+        pw_error = validate_password(password)
+        if pw_error:
+            flash(pw_error, 'error')
+            return redirect(url_for('register'))
+
+        hash_pw = generate_password_hash(password)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
+                (username, hash_pw)
+            )
+            conn.commit()
+            cur.close()
+            flash("Reģistrācija veiksmīga! Tagad vari ielogoties.", 'success')
+            return redirect(url_for('login'))
+        except psycopg2.errors.UniqueViolation:
+            flash("Lietotājvārds jau aizņemts!", 'error')
+        finally:
+            conn.close()
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        ip = request.remote_addr
+        if is_brute_force(ip):
+            flash("Pārāk daudz mēģinājumu! Mēģini vēlāk.", 'error')
+            return render_template('login.html')
+
+        username = request.form.get('user', '').strip()
+        password = request.form.get('pass', '')
+        if not username or not password:
+            flash("Aizpildi visus laukus!", 'error')
+            return render_template('login.html')
+
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM users WHERE username = %s", (username,))
+        user = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if user and check_password_hash(user['password_hash'], password):
+            session.clear()
+            session['user_id']   = user['id']
+            session['user_name'] = user['username']
+            session['is_admin']  = bool(user['is_admin'])
+            # ensure wallet row exists
+            conn2 = get_db_connection()
+            get_or_create_balance(conn2, user['id'])
+            conn2.close()
+            session.permanent = True
+            login_attempts.pop(ip, None)
+            flash(f"Sveiks, {user['username']}! Veiksmīgi ielogojies.", 'success')
+            return redirect(url_for('index'))
+        else:
+            record_attempt(ip)
+            remaining = MAX_LOGIN_ATTEMPTS - len(login_attempts.get(ip, []))
+            flash(f"Nepareizs lietotājvārds vai parole! (atlikuši {remaining} mēģinājumi)", 'error')
+    return render_template('index.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash("Veiksmīgi izlogojies.", 'success')
+    return redirect(url_for('index'))
+
+
+
+
+
+
+
+
+
+
 
 @app.route('/shop')
 @login_required
@@ -494,10 +714,10 @@ def tournaments_list():
         ORDER BY t.starts_at DESC
     """)
     tournaments = [dict(r) for r in cur.fetchall()]
+    balance = get_or_create_balance(conn, session['user_id'])
     cur.close()
     conn.close()
-    return render_template('tournaments.html', tournaments=tournaments)
-
+    return render_template('tournaments.html', tournaments=tournaments, balance=balance)
 
 @app.route('/tournaments/<int:tid>')
 @login_required
@@ -715,202 +935,6 @@ def api_win_card():
     })
 
 
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'txt', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'mp4', 'mp3'}
-MAX_FILE_SIZE    = 20 * 1024 * 1024
-MAX_FOLDER_SIZE  = 20 * 1024 * 1024
-
-MAX_LOGIN_ATTEMPTS = 5
-LOGIN_WINDOW       = 300
-login_attempts = {}
-
-app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins=os.environ.get('ALLOWED_ORIGIN', 'http://localhost:5000'))
-_secret = os.environ.get('SECRET_KEY')
-if not _secret:
-    raise RuntimeError('SECRET_KEY environment variable is not set')
-app.secret_key = _secret
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = 86400
-
-BASE_DIR = Path(__file__).parent
-app.config['UPLOAD_FOLDER'] = str(BASE_DIR / "static" / "uploads")
-app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
-
-# --- DATABASE (PostgreSQL) ---
-def get_db_connection():
-    _db_url = os.environ.get('DATABASE_URL')
-    if not _db_url:
-        raise RuntimeError('DATABASE_URL environment variable is not set')
-    conn = psycopg2.connect(_db_url)
-    conn.autocommit = False
-    return conn
-
-def init_db():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT 1")
-    conn.close()
-    print("[db] PostgreSQL connection OK")
-
-# --- PALĪGFUNKCIJAS ---
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def get_dir_size(path):
-    total = 0
-    if os.path.exists(path):
-        for dirpath, _, filenames in os.walk(path):
-            for f in filenames:
-                total += os.path.getsize(os.path.join(dirpath, f))
-    return total
-
-def login_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if 'user_id' not in session:
-            flash('Lūdzu ielogojies!', 'error')
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated
-
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if 'user_id' not in session:
-            flash('Lūdzu ielogojies!', 'error')
-            return redirect(url_for('login'))
-        if not session.get('is_admin'):
-            flash('Nav piekļuves!', 'error')
-            return redirect(url_for('index'))
-        return f(*args, **kwargs)
-    return decorated
-
-def is_brute_force(ip):
-    now = time.time()
-    attempts = login_attempts.get(ip, [])
-    attempts = [t for t in attempts if now - t < LOGIN_WINDOW]
-    login_attempts[ip] = attempts
-    return len(attempts) >= MAX_LOGIN_ATTEMPTS
-
-def record_attempt(ip):
-    now = time.time()
-    login_attempts.setdefault(ip, []).append(now)
-
-def validate_password(password):
-    if len(password) < 8:
-        return "Parolei jābūt vismaz 8 simbolus garai!"
-    if not re.search(r'\d', password):
-        return "Parolei jāsatur vismaz viens cipars!"
-    return None
-
-def sanitize_message(text):
-    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-
-# --- KĻŪDU APSTRĀDE ---
-@app.errorhandler(413)
-def file_too_large(e):
-    flash('Fails ir pārāk liels! Maksimālais izmērs ir 10MB.', 'error')
-    return redirect(url_for('bumbox'))
-
-@app.errorhandler(404)
-def not_found(e):
-    return render_template('index.html'), 404
-
-# --- MARŠRUTI ---
-@app.route('/')
-@login_required
-def index():
-    return render_template('index.html')
-
-@app.route('/profile')
-@login_required
-def profile_redirect():
-    return redirect(url_for('profile_page', username=session['user_name']))
-
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        username = request.form.get('user', '').strip()
-        password = request.form.get('pass', '')
-
-        if not username or not password:
-            flash("Aizpildi visus laukus!", 'error')
-            return redirect(url_for('register'))
-        if len(username) < 3 or len(username) > 30:
-            flash("Lietotājvārdam jābūt 3–30 simbolus garam!", 'error')
-            return redirect(url_for('register'))
-        if not re.match(r'^[a-zA-Z0-9_]+$', username):
-            flash("Lietotājvārds drīkst saturēt tikai burtus, ciparus un _!", 'error')
-            return redirect(url_for('register'))
-        pw_error = validate_password(password)
-        if pw_error:
-            flash(pw_error, 'error')
-            return redirect(url_for('register'))
-
-        hash_pw = generate_password_hash(password)
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
-                (username, hash_pw)
-            )
-            conn.commit()
-            cur.close()
-            flash("Reģistrācija veiksmīga! Tagad vari ielogoties.", 'success')
-            return redirect(url_for('login'))
-        except psycopg2.errors.UniqueViolation:
-            flash("Lietotājvārds jau aizņemts!", 'error')
-        finally:
-            conn.close()
-    return render_template('register.html')
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        ip = request.remote_addr
-        if is_brute_force(ip):
-            flash("Pārāk daudz mēģinājumu! Mēģini vēlāk.", 'error')
-            return render_template('login.html')
-
-        username = request.form.get('user', '').strip()
-        password = request.form.get('pass', '')
-        if not username or not password:
-            flash("Aizpildi visus laukus!", 'error')
-            return render_template('login.html')
-
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT * FROM users WHERE username = %s", (username,))
-        user = cur.fetchone()
-        cur.close()
-        conn.close()
-
-        if user and check_password_hash(user['password_hash'], password):
-            session.clear()
-            session['user_id']   = user['id']
-            session['user_name'] = user['username']
-            session['is_admin']  = bool(user['is_admin'])
-            # ensure wallet row exists
-            conn2 = get_db_connection()
-            get_or_create_balance(conn2, user['id'])
-            conn2.close()
-            session.permanent = True
-            login_attempts.pop(ip, None)
-            flash(f"Sveiks, {user['username']}! Veiksmīgi ielogojies.", 'success')
-            return redirect(url_for('index'))
-        else:
-            record_attempt(ip)
-            remaining = MAX_LOGIN_ATTEMPTS - len(login_attempts.get(ip, []))
-            flash(f"Nepareizs lietotājvārds vai parole! (atlikuši {remaining} mēģinājumi)", 'error')
-    return render_template('index.html')
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    flash("Veiksmīgi izlogojies.", 'success')
-    return redirect(url_for('index'))
 
 # @app.route('/bumbox')
 # @login_required
@@ -1148,15 +1172,17 @@ def handle_messages(group_id):
     user_id = session['user_id']
     conn    = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        "SELECT 1 FROM chat_members WHERE group_id = %s AND user_id = %s",
-        (group_id, user_id)
-    )
-    is_member = cur.fetchone()
-    if not is_member:
-        cur.close()
-        conn.close()
-        return jsonify({"error": "Not a member"}), 403
+
+    # Lobby is open to all logged-in users
+    if group_id != 1:
+        cur.execute(
+            "SELECT 1 FROM chat_members WHERE group_id = %s AND user_id = %s",
+            (group_id, user_id)
+        )
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Not a member"}), 403
 
     if request.method == 'POST':
         msg_text = request.json.get('message', '').strip()
@@ -1188,7 +1214,191 @@ def handle_messages(group_id):
     return jsonify([dict(m) for m in messages])
 
 
+# ==========================================
+#  FRIENDS & DIRECT MESSAGES
+# ==========================================
 
+@app.route('/api/friends/search')
+@login_required
+def api_friends_search():
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, username FROM users
+        WHERE username ILIKE %s AND id != %s
+        LIMIT 10
+    """, (f'%{q}%', session['user_id']))
+    users = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify([dict(u) for u in users])
+
+
+@app.route('/api/friends/request', methods=['POST'])
+@login_required
+def api_friends_request():
+    user_id     = session['user_id']
+    receiver_id = int((request.json or {}).get('user_id', 0))
+    if receiver_id == user_id:
+        return jsonify({'ok': False, 'error': 'Nevari sūtīt sev'}), 400
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO friendships (sender_id, receiver_id)
+            VALUES (%s, %s)
+            ON CONFLICT (sender_id, receiver_id) DO NOTHING
+        """, (user_id, receiver_id))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/friends/respond', methods=['POST'])
+@login_required
+def api_friends_respond():
+    user_id   = session['user_id']
+    data      = request.json or {}
+    sender_id = int(data.get('user_id', 0))
+    action    = data.get('action')  # 'accept' or 'reject'
+    if action not in ('accept', 'reject'):
+        return jsonify({'ok': False, 'error': 'Nepareiza darbība'}), 400
+    status = 'accepted' if action == 'accept' else 'rejected'
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    cur.execute("""
+        UPDATE friendships SET status = %s
+        WHERE sender_id = %s AND receiver_id = %s
+    """, (status, sender_id, user_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/friends/list')
+@login_required
+def api_friends_list():
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # accepted friends
+    cur.execute("""
+        SELECT u.id, u.username FROM friendships f
+        JOIN users u ON u.id = CASE
+            WHEN f.sender_id = %s THEN f.receiver_id
+            ELSE f.sender_id END
+        WHERE (f.sender_id = %s OR f.receiver_id = %s)
+          AND f.status = 'accepted'
+    """, (user_id, user_id, user_id))
+    friends = cur.fetchall()
+    # pending requests received
+    cur.execute("""
+        SELECT u.id, u.username FROM friendships f
+        JOIN users u ON u.id = f.sender_id
+        WHERE f.receiver_id = %s AND f.status = 'pending'
+    """, (user_id,))
+    pending = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify({
+        'friends': [dict(f) for f in friends],
+        'pending': [dict(p) for p in pending]
+    })
+
+
+@app.route('/api/dm/<int:other_id>', methods=['GET'])
+@login_required
+def api_dm_get(other_id):
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # verify they are friends
+    cur.execute("""
+        SELECT 1 FROM friendships
+        WHERE ((sender_id=%s AND receiver_id=%s)
+            OR (sender_id=%s AND receiver_id=%s))
+          AND status='accepted'
+    """, (user_id, other_id, other_id, user_id))
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'error': 'Nav draugi'}), 403
+    cur.execute("""
+        SELECT dm.*, u.username AS sender_name
+        FROM direct_messages dm
+        JOIN users u ON u.id = dm.sender_id
+        WHERE (sender_id=%s AND receiver_id=%s)
+           OR (sender_id=%s AND receiver_id=%s)
+        ORDER BY created_at ASC LIMIT 200
+    """, (user_id, other_id, other_id, user_id))
+    msgs = cur.fetchall()
+    # mark as read
+    cur2 = conn.cursor()
+    cur2.execute("""
+        UPDATE direct_messages SET is_read=TRUE
+        WHERE receiver_id=%s AND sender_id=%s AND is_read=FALSE
+    """, (user_id, other_id))
+    conn.commit()
+    cur2.close()
+    cur.close()
+    conn.close()
+    return jsonify([dict(m) for m in msgs])
+
+
+@app.route('/api/dm/<int:other_id>', methods=['POST'])
+@login_required
+def api_dm_send(other_id):
+    user_id = session['user_id']
+    text    = (request.json or {}).get('message', '').strip()
+    if not text or len(text) > 2000:
+        return jsonify({'error': 'Nederīga ziņa'}), 400
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT 1 FROM friendships
+        WHERE ((sender_id=%s AND receiver_id=%s)
+            OR (sender_id=%s AND receiver_id=%s))
+          AND status='accepted'
+    """, (user_id, other_id, other_id, user_id))
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'error': 'Nav draugi'}), 403
+    cur2 = conn.cursor()
+    cur2.execute("""
+        INSERT INTO direct_messages (sender_id, receiver_id, message)
+        VALUES (%s, %s, %s)
+    """, (user_id, other_id, sanitize_message(text)))
+    conn.commit()
+    cur2.close()
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/dm/unread')
+@login_required
+def api_dm_unread():
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT sender_id, COUNT(*) AS cnt
+        FROM direct_messages
+        WHERE receiver_id=%s AND is_read=FALSE
+        GROUP BY sender_id
+    """, (user_id,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify({str(r['sender_id']): r['cnt'] for r in rows})
 
 
 
@@ -2517,7 +2727,7 @@ def profile_page(username):
     conn.close()
 
     # inside profile_page(), after fetching profile:
-i   s_own_profile = ('user_id' in session and session['user_id'] == owner['id'])
+    is_own_profile = ('user_id' in session and session['user_id'] == owner['id'])
 
     equipped_skin_name = None
     if profile and profile.get('equipped_skin'):
@@ -3176,9 +3386,8 @@ def club_detailed(club_id):
 @admin_required
 def admin_panel():
     conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    
-    # 1. Fetch Users with Balances and Stats
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     cur.execute("""
         SELECT u.id, u.username, u.is_admin, u.created_at,
                COALESCE(w.balance, 0) AS balance,
@@ -3187,29 +3396,48 @@ def admin_panel():
         LEFT JOIN wallets w ON u.id = w.user_id
         ORDER BY u.id DESC
     """)
-    
-    # 2. Fetch Recent Transactions
+    users = cur.fetchall()
+
     cur.execute("""
-        SELECT t.*, u.username 
+        SELECT t.*, u.username
         FROM casino_transactions t
         JOIN users u ON t.user_id = u.id
         ORDER BY t.created_at DESC LIMIT 50
     """)
     transactions = cur.fetchall()
-    
-    # 3. Fetch Prediction Events
+
     cur.execute("SELECT * FROM prediction_events ORDER BY id DESC")
     predictions = cur.fetchall()
-    
-    # 4. Initial Stats for the top cards
+
+    cur.execute("""
+        SELECT c.*, u.username AS owner_name,
+               COUNT(cm.user_id) AS member_count
+        FROM clubs c
+        JOIN users u ON u.id = c.owner_id
+        LEFT JOIN club_members cm ON cm.club_id = c.id
+        GROUP BY c.id, u.username
+        ORDER BY c.created_at DESC
+    """)
+    clubs = cur.fetchall()
+
+    cur.execute("""
+        SELECT u.username, cs.count
+        FROM canvas_scores cs
+        JOIN users u ON u.id = cs.user_id
+        ORDER BY cs.count DESC LIMIT 20
+    """)
+    canvas_scores = cur.fetchall()
+
     stats = _get_admin_stats_dict(cur)
-    
     cur.close()
     conn.close()
-    return render_template('admin.html', 
-                           users=users, 
-                           transactions=transactions, 
-                           predictions=predictions, 
+
+    return render_template('admin.html',
+                           users=users,
+                           transactions=transactions,
+                           predictions=predictions,
+                           clubs=clubs,
+                           canvas_scores=canvas_scores,
                            stats=stats)
 
 @app.route('/api/admin/stats')
