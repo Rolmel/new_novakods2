@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 import time
 load_dotenv()
 
+from achievements import check_achievements
+
 # --- KONFIGURĀCIJA ---
 
 from redis_games import (
@@ -249,7 +251,34 @@ def logout():
 
 
 
+@app.route('/api/achievements/<int:user_id>')
+@login_required
+def api_user_achievements(user_id):
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT a.slug, a.name, a.description, a.icon, a.category, a.rarity,
+               ua.unlocked_at
+        FROM user_achievements ua
+        JOIN achievements a ON a.slug = ua.slug
+        WHERE ua.user_id = %s
+        ORDER BY ua.unlocked_at DESC
+    """, (user_id,))
+    unlocked = [dict(r) for r in cur.fetchall()]
 
+    cur.execute("""
+        SELECT slug, name, description, icon, category, rarity
+        FROM achievements ORDER BY rarity DESC, category, name
+    """)
+    all_ach = [dict(r) for r in cur.fetchall()]
+
+    unlocked_slugs = {r['slug'] for r in unlocked}
+    for a in all_ach:
+        a['unlocked'] = a['slug'] in unlocked_slugs
+
+    cur.close()
+    conn.close()
+    return jsonify({'achievements': all_ach, 'count': len(unlocked)})
 
 @app.route('/shop')
 @login_required
@@ -1281,6 +1310,10 @@ def api_friends_respond():
     conn.commit()
     cur.close()
     conn.close()
+    if action == 'accept':
+        conn2 = get_db_connection()
+        check_achievements(conn2, user_id, {'friend_added': True})
+        conn2.close()
     return jsonify({'ok': True})
 
 
@@ -1522,6 +1555,8 @@ def api_daily_bonus():
     if streak == 30:
         msg = f'🏆 30 dienu sērija! +{bonus} monētas + Zelta kārtis!'
 
+    check_achievements(conn, user_id, {'daily': True})
+
     return jsonify({
         'ok':               True,
         'credits':          bonus,
@@ -1650,6 +1685,10 @@ def api_slots():
                message=f"{result}")
     cur.close()
     conn.close()
+
+    new_ach = check_achievements(conn, user_id, {
+        'game': 'slots', 'net': winnings, 'result': result
+    })
 
     return jsonify({
         "reels": reels,
@@ -2852,6 +2891,105 @@ def api_profile_avatar():
 # ==========================================
 #  PREDICTION MARKET
 # ==========================================
+def _calculate_tier(stats: dict) -> str:
+    """
+    Tier logic based on win rate + minimum sample size.
+    Returns one of: unranked, bronze, silver, gold, expert, oracle
+    """
+    n       = stats['total_bets']
+    wins    = stats['total_wins']
+    staked  = stats['total_staked'] or 1
+    returned = stats['total_returned']
+    roi     = (returned - staked) / staked * 100   # can be negative
+
+    if n < 5:
+        return 'unranked'
+
+    win_rate = wins / n * 100
+
+    if n >= 50 and win_rate >= 70 and roi >= 40:
+        return 'oracle'
+    if n >= 30 and win_rate >= 65 and roi >= 20:
+        return 'expert'
+    if n >= 20 and win_rate >= 60:
+        return 'gold'
+    if n >= 10 and win_rate >= 55:
+        return 'silver'
+    if n >= 5:
+        return 'bronze'
+    return 'unranked'
+
+
+def _update_prediction_stats(conn, event_id: int, winning_option_id: int):
+    """
+    Recalculate prediction_stats and predictor_tiers for everyone
+    who bet on this event. Call after payouts are written.
+    """
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Fetch all bets on this event
+    cur.execute("""
+        SELECT user_id, stake, payout, (option_id = %s) AS won
+        FROM predictions
+        WHERE event_id = %s
+    """, (winning_option_id, event_id))
+    bets = cur.fetchall()
+
+    cur2 = conn.cursor()
+    for b in bets:
+        uid     = b['user_id']
+        won     = b['won']
+        stake   = int(b['stake'])
+        payout  = int(b['payout'] or 0)
+
+        # Upsert prediction_stats
+        cur2.execute("""
+            INSERT INTO prediction_stats
+                (user_id, total_bets, total_wins, total_staked,
+                 total_returned, current_streak, best_streak)
+            VALUES (%s, 1, %s, %s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                total_bets     = prediction_stats.total_bets + 1,
+                total_wins     = prediction_stats.total_wins + %s,
+                total_staked   = prediction_stats.total_staked + %s,
+                total_returned = prediction_stats.total_returned + %s,
+                current_streak = CASE
+                    WHEN %s THEN prediction_stats.current_streak + 1
+                    ELSE 0 END,
+                best_streak    = GREATEST(
+                    prediction_stats.best_streak,
+                    CASE WHEN %s THEN prediction_stats.current_streak + 1
+                    ELSE prediction_stats.best_streak END),
+                updated_at = NOW()
+        """, (
+            uid,
+            1 if won else 0, stake, payout,
+            1 if won else 0, 1 if won else 0,   # INSERT values
+            1 if won else 0, stake, payout,       # UPDATE values
+            won, won                              # streak logic
+        ))
+
+        # Recalculate tier
+        cur2.execute("""
+            SELECT total_bets, total_wins, total_staked, total_returned
+            FROM prediction_stats WHERE user_id = %s
+        """, (uid,))
+        stats = cur2.fetchone()
+        if stats:
+            tier = _calculate_tier(stats)
+            cur2.execute("""
+                INSERT INTO predictor_tiers (user_id, tier, tier_since)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (user_id) DO UPDATE
+                    SET tier = EXCLUDED.tier,
+                        tier_since = CASE
+                            WHEN predictor_tiers.tier != EXCLUDED.tier THEN NOW()
+                            ELSE predictor_tiers.tier_since END
+            """, (uid, tier))
+
+    conn.commit()
+    cur.close()
+    cur2.close()
 
 def _update_option_prices(conn, event_id):
     """Recalculate implied probability for each option after a new bet."""
@@ -3166,6 +3304,8 @@ def api_prediction_resolve(event_id):
             VALUES (%s, %s, %s, %s, %s)
         """, (w['user_id'], payout, 'prediction:payout', str(event_id), round(w_balance, 2)))
 
+        check_achievements(conn, w['user_id'], {'pred_event': True})
+
     cur2.execute("""
         UPDATE prediction_events
         SET status = 'resolved', outcome = %s, resolves_at = NOW()
@@ -3173,6 +3313,11 @@ def api_prediction_resolve(event_id):
     """, (winning_option['label'], event_id))
 
     conn.commit()
+    
+
+    _update_prediction_stats(conn, event_id, winning_option_id)
+    
+    socketio.emit('prediction_resolved', { ... })    
     cur.close()
     cur2.close()
     conn.close()
@@ -3186,6 +3331,81 @@ def api_prediction_resolve(event_id):
 
     return jsonify({'ok': True, 'total_pot': total_pot, 'winners': len(winners)})
 
+@app.route('/api/predictions/leaderboard')
+@login_required
+def api_prediction_leaderboard():
+    """
+    Top predictors by ROI (min 10 bets).
+    Returns rank, tier badge, win rate, profit.
+    """
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT
+            u.id,
+            u.username,
+            COALESCE(p.display_name, u.username) AS display_name,
+            ps.total_bets,
+            ps.total_wins,
+            ps.total_staked,
+            ps.total_returned,
+            ps.best_streak,
+            pt.tier,
+            ROUND(ps.total_wins::numeric / NULLIF(ps.total_bets, 0) * 100, 1) AS win_rate,
+            (ps.total_returned - ps.total_staked) AS profit,
+            ROUND(
+                (ps.total_returned - ps.total_staked)::numeric
+                / NULLIF(ps.total_staked, 1) * 100, 1
+            ) AS roi_pct,
+            RANK() OVER (
+                ORDER BY
+                    (ps.total_returned - ps.total_staked) DESC,
+                    ps.total_wins DESC
+            ) AS rank
+        FROM prediction_stats ps
+        JOIN users u ON u.id = ps.user_id
+        LEFT JOIN profiles p ON p.user_id = ps.user_id
+        LEFT JOIN predictor_tiers pt ON pt.user_id = ps.user_id
+        WHERE ps.total_bets >= 5
+        ORDER BY profit DESC
+        LIMIT 50
+    """)
+    rows = cur.fetchall()
+
+    # Also fetch caller's own stats even if not top 50
+    my_stats = None
+    user_id  = session['user_id']
+    cur.execute("""
+        SELECT ps.*, pt.tier,
+            ROUND(ps.total_wins::numeric / NULLIF(ps.total_bets, 0) * 100, 1) AS win_rate,
+            (ps.total_returned - ps.total_staked) AS profit
+        FROM prediction_stats ps
+        LEFT JOIN predictor_tiers pt ON pt.user_id = ps.user_id
+        WHERE ps.user_id = %s
+    """, (user_id,))
+    my_stats = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    TIER_ICONS = {
+        'oracle':   '🔮',
+        'expert':   '⭐',
+        'gold':     '🥇',
+        'silver':   '🥈',
+        'bronze':   '🥉',
+        'unranked': '—',
+    }
+
+    def fmt(row):
+        r = dict(row)
+        r['tier_icon'] = TIER_ICONS.get(r.get('tier', 'unranked'), '—')
+        return r
+
+    return jsonify({
+        'leaderboard': [fmt(r) for r in rows],
+        'my_stats':    fmt(my_stats) if my_stats else None,
+    })
 
 @socketio.on('watch_prediction')
 def watch_prediction(data):
@@ -3288,6 +3508,7 @@ def create_club():
         )
         conn.commit()
         cur.close()
+        check_achievements(conn, user_id, {'club_action': 'created'})
         flash(f"Klubs '{name}' izveidots!", "success")
         return redirect(url_for('club_detailed', club_id=club_id))
     except psycopg2.errors.UniqueViolation:

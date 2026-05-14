@@ -249,5 +249,89 @@ async function submitPrediction() {
     console.error('createEvent error:', e);
   }
 }
+
+async function loadPredictionLeaderboard() {
+    const res  = await fetch('/api/predictions/leaderboard');
+    const data = await res.json();
+    const lb   = data.leaderboard;
+    const me   = data.my_stats;
+
+    if (!lb.length) return;
+
+    const TIER_COLORS = {
+        oracle: '#a855f7', expert: '#f5c842', gold: '#fbbf24',
+        silver: '#c0c0c0', bronze: '#cd7f32', unranked: '#444'
+    };
+
+    let html = `
+      <div style="background:#111118;border:1px solid #2a2a3a;border-radius:14px;
+                  padding:20px;margin-top:24px;">
+        <div style="font-family:'Cinzel Decorative',serif;color:var(--gold);
+                    font-size:1rem;margin-bottom:16px;">
+          🏅 Prognozes — Topa Saraksts
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:0.83rem;">
+          <thead>
+            <tr style="color:#555;border-bottom:1px solid #2a2a3a;">
+              <th style="padding:6px 10px;text-align:left;">#</th>
+              <th style="padding:6px 10px;text-align:left;">Spēlētājs</th>
+              <th style="padding:6px 10px;text-align:right;">Uzvara%</th>
+              <th style="padding:6px 10px;text-align:right;">ROI%</th>
+              <th style="padding:6px 10px;text-align:right;">Peļņa</th>
+              <th style="padding:6px 10px;text-align:right;">Sērija</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+    lb.forEach(p => {
+        const color  = TIER_COLORS[p.tier] || '#444';
+        const isMe   = me && p.id === me.user_id;
+        const profit = p.profit >= 0
+            ? `<span style="color:#00e676">+${p.profit}</span>`
+            : `<span style="color:#ff1744">${p.profit}</span>`;
+        html += `
+          <tr style="border-bottom:1px solid #111120;${isMe ? 'background:#1a1a0a;' : ''}">
+            <td style="padding:8px 10px;color:#555">${p.rank}</td>
+            <td style="padding:8px 10px;">
+              <span style="color:${color};font-weight:700;margin-right:6px;">
+                ${p.tier_icon}
+              </span>
+              <a href="/u/${p.username}" style="color:#e0e0e0;text-decoration:none;">
+                ${p.display_name || p.username}
+              </a>
+            </td>
+            <td style="padding:8px 10px;text-align:right;color:#aaa">
+              ${p.win_rate}%
+            </td>
+            <td style="padding:8px 10px;text-align:right;
+                       color:${p.roi_pct >= 0 ? '#00e676' : '#ff1744'}">
+              ${p.roi_pct}%
+            </td>
+            <td style="padding:8px 10px;text-align:right;">${profit}</td>
+            <td style="padding:8px 10px;text-align:right;color:var(--gold)">
+              ${p.best_streak}🔥
+            </td>
+          </tr>`;
+    });
+
+    if (me && !lb.find(p => p.id === me.user_id)) {
+        html += `
+          <tr style="border-top:2px solid #2a2a3a;background:#0a0a14;">
+            <td style="padding:8px 10px;color:#555">—</td>
+            <td style="padding:8px 10px;color:var(--gold)" colspan="5">
+              Tu: ${me.total_bets} likmēs, ${me.win_rate}% uzvara,
+              ${me.profit >= 0 ? '+' : ''}${me.profit} peļņa
+              (${me.tier || 'unranked'})
+            </td>
+          </tr>`;
+    }
+
+    html += `</tbody></table></div>`;
+
+    const container = document.getElementById('events-grid');
+    container.insertAdjacentHTML('afterend', html);
+}
+
+loadPredictionLeaderboard();
 </script>
 {% endblock %}

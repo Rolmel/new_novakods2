@@ -177,6 +177,38 @@ function showWinCard(game, amount, mult) {
   });
   document.body.appendChild(modal);
 }
+
+function showAchievementToast(slugs) {
+    if (!slugs || !slugs.length) return;
+    slugs.forEach((slug, i) => {
+        setTimeout(async () => {
+            const res  = await fetch(`/api/achievements/{{ session.get('user_id', 0) }}`);
+            const data = await res.json();
+            const ach  = data.achievements.find(a => a.slug === slug);
+            if (!ach) return;
+
+            const div = document.createElement('div');
+            div.style.cssText = `
+                position:fixed;bottom:${90 + i * 80}px;right:24px;z-index:1000;
+                background:#111118;border:1px solid #f5c842;border-radius:12px;
+                padding:12px 18px;display:flex;gap:12px;align-items:center;
+                box-shadow:0 8px 30px rgba(0,0,0,.6);
+                animation:slideIn .3s ease;
+                font-family:'Rajdhani',sans-serif;
+            `;
+            div.innerHTML = `
+                <span style="font-size:1.8rem">${ach.icon}</span>
+                <div>
+                  <div style="color:#f5c842;font-weight:700;font-size:0.85rem;">
+                    Jauns sasniegums!
+                  </div>
+                  <div style="color:#e0e0e0;font-size:0.82rem;">${ach.name}</div>
+                </div>`;
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 4000);
+        }, i * 500);
+    });
+}
 </script>
 
 {% if session.user_id %}

@@ -138,6 +138,7 @@ async function spin() {
       msg.className = 'result-msg result-win';
       msg.textContent = `🎉 ${data.result} +${data.winnings.toFixed(2)} coins!`;
       showWinCard('slots', data.net);
+      if (data.achievements && data.achievements.length) showAchievementToast(data.achievements);
     } else {
       msg.className = 'result-msg result-loss';
       msg.textContent = `😞 ${data.result}`;

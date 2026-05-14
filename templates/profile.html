@@ -496,6 +496,50 @@ async function uploadAvatar(input) {
         document.getElementById('avatar-upload-msg').textContent = '❌ ' + data.error;
     }
 }
+
+async function loadAchievements(userId) {
+    const res  = await fetch(`/api/achievements/${userId}`);
+    const data = await res.json();
+
+    const RARITY_COLORS = {
+        legendary: '#a855f7', epic: '#f5c842',
+        rare: '#2196f3',      common: '#555'
+    };
+
+    const html = `
+      <div class="panel" style="margin-top:0">
+        <div class="panel-title">
+          🏅 Sasniegumi
+          <span style="color:#555;font-size:0.78rem;font-weight:400;margin-left:8px;">
+            ${data.count}/${data.achievements.length}
+          </span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));
+                    gap:8px;">
+          ${data.achievements.map(a => `
+            <div title="${a.name}\n${a.description}"
+                 style="
+                   width:44px;height:44px;border-radius:10px;
+                   display:flex;align-items:center;justify-content:center;
+                   font-size:1.4rem;cursor:help;
+                   border:1px solid ${a.unlocked ? RARITY_COLORS[a.rarity] : '#1a1a2e'};
+                   background:${a.unlocked ? RARITY_COLORS[a.rarity] + '18' : '#0a0a14'};
+                   opacity:${a.unlocked ? '1' : '0.3'};
+                   transition:transform .15s;
+                 "
+                 onmouseover="this.style.transform='scale(1.15)'"
+                 onmouseout="this.style.transform=''">
+              ${a.icon}
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+
+    document.querySelector('.profile-right').insertAdjacentHTML('afterbegin', html);
+}
+
+// Call with the profile owner's id (injected by Jinja)
+loadAchievements({{ owner.id }});
 </script>
 {% endif %}
 

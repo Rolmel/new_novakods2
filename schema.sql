@@ -1,7 +1,87 @@
 -- ============================================================
 --  NovaKods — Full PostgreSQL Schema
---  Run once:  psql -U postgres -d novakods -f schema.sql
+--  Run once:  psql -U rolmel -d novakods -f /var/www/html/novakods/schema.sql
 -- ============================================================
+
+
+CREATE TABLE IF NOT EXISTS achievements (
+    slug        TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL,
+    icon        TEXT NOT NULL DEFAULT '🏅',
+    category    TEXT NOT NULL DEFAULT 'casino',  -- casino|predictions|social|grind
+    rarity      TEXT NOT NULL DEFAULT 'common'   -- common|rare|epic|legendary
+);
+
+CREATE TABLE IF NOT EXISTS user_achievements (
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    slug         TEXT    NOT NULL REFERENCES achievements(slug),
+    unlocked_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, slug)
+);
+
+-- Seed all achievements
+INSERT INTO achievements (slug, name, description, icon, category, rarity) VALUES
+-- Casino
+('first_spin',      'Pirmā Grieziens',     'Nospēlē slots pirmo reizi',          '🎰', 'casino', 'common'),
+('slots_100',       'Slots Veterāns',      'Nospēlē slots 100 reizes',            '🎰', 'casino', 'rare'),
+('jackpot',         'Džekpots!',           'Laimē slots džekpotu',                '💎', 'casino', 'epic'),
+('blackjack_nat',   'Natural 21',          'Dabūji blackjack dabisko',            '🃏', 'casino', 'rare'),
+('big_win_500',     'Lielais Laimests',    'Laimē 500+ monētas vienā spēlē',     '💰', 'casino', 'rare'),
+('big_win_5000',    'Leģenda',             'Laimē 5000+ monētas vienā spēlē',    '👑', 'casino', 'legendary'),
+('tower_top',       'Torņa Karalis',       'Sasniiedz Tower virsotni',            '🗼', 'casino', 'epic'),
+('crash_10x',       'Nervu Sitiens',       'Izmaksā Crash pie 10x vai vairāk',   '🚀', 'casino', 'epic'),
+('poker_sf',        'Straight Flush',      'Dabūji Straight Flush Video Poker',  '♠️', 'casino', 'legendary'),
+('hl_streak_10',    'Lasītājs',            '10 pareizas atbildes pēc kārtas HL', '🔮', 'casino', 'epic'),
+-- Predictions
+('pred_first',      'Pirmā Likme',         'Liec pirmo prognozi',                '📈', 'predictions', 'common'),
+('pred_win_5',      'Sācējs Analītiķis',  'Uzvar 5 prognozes',                  '📊', 'predictions', 'common'),
+('pred_win_25',     'Pieredzējis',         'Uzvar 25 prognozes',                 '🧠', 'predictions', 'rare'),
+('pred_win_100',    'Eksperts',            'Uzvar 100 prognozes',                '⭐', 'predictions', 'epic'),
+('pred_streak_5',   'Karstā Sērija',       '5 uzvaras pēc kārtas prognozēs',    '🔥', 'predictions', 'rare'),
+('pred_roi_50',     'Peļņu Prāts',         'Sasniedz 50% ROI prognozēs',        '💹', 'predictions', 'epic'),
+('pred_oracle',     'Orākuls',             'Sasniedz Oracle līmeni',             '🔮', 'predictions', 'legendary'),
+-- Social / Clubs
+('club_found',      'Dibinātājs',          'Izveido klubu',                      '🏛️', 'social', 'common'),
+('club_10members',  'Populārs Klubs',      'Tavam klubam ir 10+ dalībnieki',     '👥', 'social', 'rare'),
+('friends_5',       'Sabiedrisks',         'Pievieno 5 draugus',                 '🤝', 'social', 'common'),
+-- Grind
+('daily_7',         'Nedēļas Ieradums',    '7 dienu ikdienas sērija',            '📅', 'grind', 'common'),
+('daily_30',        'Mēneša Veterāns',     '30 dienu ikdienas sērija',           '🏆', 'grind', 'rare'),
+('daily_100',       'Neatvairāms',         '100 dienu ikdienas sērija',          '💎', 'grind', 'legendary'),
+('wallet_10k',      'Desmitnieks',         'Sasniedz 10,000 monētu bilanci',     '💵', 'grind', 'rare'),
+('wallet_100k',     'Miljonārs',           'Sasniedz 100,000 monētu bilanci',   '🤑', 'grind', 'legendary'),
+('total_bets_500',  'Nelabojams',          'Nospēlē 500 casino spēles',          '🎲', 'grind', 'epic')
+ON CONFLICT (slug) DO NOTHING;
+
+-- Tracks per-user prediction performance (updated on each resolve)
+CREATE TABLE IF NOT EXISTS prediction_stats (
+    user_id        INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    total_bets     INTEGER NOT NULL DEFAULT 0,
+    total_wins     INTEGER NOT NULL DEFAULT 0,
+    total_staked   BIGINT  NOT NULL DEFAULT 0,
+    total_returned BIGINT  NOT NULL DEFAULT 0,  -- coins returned (winnings)
+    current_streak INTEGER NOT NULL DEFAULT 0,
+    best_streak    INTEGER NOT NULL DEFAULT 0,
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Tier system: unranked → bronze → silver → gold → expert → oracle
+CREATE TABLE IF NOT EXISTS predictor_tiers (
+    user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    tier       TEXT    NOT NULL DEFAULT 'unranked',  
+    tier_since TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Weekly snapshot for season leaderboards (run by a background job)
+CREATE TABLE IF NOT EXISTS prediction_weekly_lb (
+    week_start DATE    NOT NULL,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    wins       INTEGER NOT NULL DEFAULT 0,
+    roi_pct    NUMERIC(8,2) NOT NULL DEFAULT 0,  -- (returned-staked)/staked * 100
+    profit     BIGINT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (week_start, user_id)
+);
 
 CREATE TABLE IF NOT EXISTS friendships (
     id         SERIAL PRIMARY KEY,
