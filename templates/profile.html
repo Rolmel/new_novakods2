@@ -295,6 +295,54 @@
         .profile-friend-btn.pending  { background:#1a1a2e; border:1px solid #555;   color:#888; cursor:default; }
         .profile-friend-btn.friends  { background:#1a3a1a; border:1px solid #00e676; color:#00e676; cursor:default; }
         </style>
+
+        {% if not is_own_profile and session.user_id %}
+        <div id="follow-btn-wrap" style="margin-top:8px;">
+            <button id="follow-btn" onclick="toggleFollow({{ owner.id }})"
+                class="profile-friend-btn" style="background:#1a1a2e;border:1px solid #555;color:#aaa;">
+                ➕ Sekot prognozēm
+            </button>
+        </div>
+        <script>
+        async function toggleFollow(uid) {
+            const btn = document.getElementById('follow-btn');
+            const following = btn.dataset.following === 'true';
+            const url = following ? `/api/predictors/unfollow/${uid}` : `/api/predictors/follow/${uid}`;
+            btn.disabled = true;
+            const res  = await fetch(url, { method: 'POST' });
+            const data = await res.json();
+            if (data.ok) {
+                if (!following) {
+                btn.textContent = '✓ Seko prognozēm';
+                btn.style.color = '#00e676';
+                btn.style.borderColor = '#00e676';
+                btn.dataset.following = 'true';
+            } else {
+                btn.textContent = '➕ Sekot prognozēm';
+                btn.style.color = '#aaa';
+                btn.style.borderColor = '#555';
+                btn.dataset.following = 'false';
+                }
+            }
+            btn.disabled = false;
+        }
+
+        async function checkFollowStatus() {
+            const res  = await fetch(`/api/predictors/following`);
+            const data = await res.json();
+            const btn  = document.getElementById('follow-btn');
+            if (data.ids.includes({{ owner.id }})) {
+                btn.textContent = '✓ Seko prognozēm';
+                btn.style.color = '#00e676';
+                btn.style.borderColor = '#00e676';
+                btn.dataset.following = 'true';
+            } else {
+                btn.dataset.following = 'false';
+            }
+        }
+        checkFollowStatus();
+        </script>
+        {% endif %}
         <script>
         async function checkFriendStatus() {
             const res  = await fetch('/api/friends/list');

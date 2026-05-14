@@ -45,6 +45,18 @@ MAX_LOGIN_ATTEMPTS = 5
 LOGIN_WINDOW       = 300
 login_attempts = {}
 
+TIER_BADGES = {
+    'oracle':   {'icon': '🔮', 'label': 'Oracle',   'color': '#a855f7'},
+    'expert':   {'icon': '⭐', 'label': 'Expert',   'color': '#f5c842'},
+    'gold':     {'icon': '🥇', 'label': 'Gold',     'color': '#fbbf24'},
+    'silver':   {'icon': '🥈', 'label': 'Silver',   'color': '#c0c0c0'},
+    'bronze':   {'icon': '🥉', 'label': 'Bronze',   'color': '#cd7f32'},
+    'unranked': {'icon': '',   'label': 'Unranked', 'color': '#555'},
+}
+
+def get_tier_badge(tier: str) -> dict:
+    return TIER_BADGES.get(tier, TIER_BADGES['unranked'])
+
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins=os.environ.get('ALLOWED_ORIGIN', 'http://localhost:5000'))
 _secret = os.environ.get('SECRET_KEY')
@@ -263,6 +275,85 @@ def logout():
     session.clear()
     flash("Veiksmīgi izlogojies.", 'success')
     return redirect(url_for('index'))
+
+
+
+
+
+
+
+@app.route('/api/predictors/follow/<int:target_id>', methods=['POST'])
+@login_required
+def api_follow_predictor(target_id):
+    user_id = session['user_id']
+    if user_id == target_id:
+        return jsonify({'ok': False, 'error': 'Nevari sekot sev'}), 400
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO predictor_follows (follower_id, following_id)
+            VALUES (%s, %s) ON CONFLICT DO NOTHING
+        """, (user_id, target_id))
+        conn.commit()
+        action = 'followed'
+    except Exception:
+        conn.rollback()
+        action = 'error'
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True, 'action': action})
+
+
+@app.route('/api/predictors/unfollow/<int:target_id>', methods=['POST'])
+@login_required
+def api_unfollow_predictor(target_id):
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    cur.execute("""
+        DELETE FROM predictor_follows
+        WHERE follower_id = %s AND following_id = %s
+    """, (user_id, target_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/predictions/following_feed')
+@login_required
+def api_following_feed():
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT
+            u.username,
+            COALESCE(pf.display_name, u.username) AS display_name,
+            COALESCE(pt.tier, 'unranked')          AS tier,
+            pe.title                               AS event_title,
+            pe.id                                  AS event_id,
+            po.label                               AS option_label,
+            p.stake,
+            p.created_at
+        FROM predictor_follows f
+        JOIN predictions p          ON p.user_id  = f.following_id
+        JOIN users u                ON u.id        = f.following_id
+        JOIN prediction_events pe   ON pe.id       = p.event_id
+        JOIN prediction_options po  ON po.id       = p.option_id
+        LEFT JOIN profiles pf       ON pf.user_id  = f.following_id
+        LEFT JOIN predictor_tiers pt ON pt.user_id = f.following_id
+        WHERE f.follower_id = %s
+          AND pe.status = 'open'
+          AND p.created_at > NOW() - INTERVAL '48 hours'
+        ORDER BY p.created_at DESC
+        LIMIT 20
+    """, (user_id,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
 
 
 
@@ -841,16 +932,42 @@ def _tournament_payout_tiers(prize_pool: int, player_count: int) -> list[dict]:
         result.append({'place': t['place'], 'pct': t['pct'], 'amount': amount})
     return result
 
+@app.context_processor
+def inject_globals():
+    css = ''
+    if 'user_id' in session:
+        css = _get_equipped_skin_css(session['user_id'])
+    return {
+        'card_skin_css': css,
+        'TIER_BADGES': TIER_BADGES,
+    }
+
+def _check_tournament_tier_gate(conn, user_id: int, tournament: dict) -> str | None:
+    """Returns error string if user doesn't meet tier requirement, else None."""
+    required = tournament.get('min_tier', 'unranked')
+    if not required or required == 'unranked':
+        return None
+    user_tier = _get_user_tier(conn, user_id)
+    if not _tier_gte(user_tier, required):
+        badge = TIER_BADGES.get(required, {})
+        return (f'Šis turnīrs prasa {badge.get("icon","")} {badge.get("label", required)} līmeni. '
+                f'Tavs līmenis: {user_tier}')
+    return None
 
 @app.route('/api/tournaments/<int:tid>/join', methods=['POST'])
 @login_required
 def api_tournament_join(tid):
+    
     user_id = session['user_id']
     conn = get_db_connection()
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     cur.execute("SELECT * FROM tournaments WHERE id = %s", (tid,))
     t = cur.fetchone()
+    tier_error = _check_tournament_tier_gate(conn, user_id, t)
+    if tier_error:
+        conn.close()
+        return jsonify({'ok': False, 'error': tier_error}), 403
     if not t:
         conn.close()
         return jsonify({'ok': False, 'error': 'Nav atrasts'}), 404
@@ -3191,6 +3308,22 @@ def api_profile_avatar():
 # ==========================================
 #  PREDICTION MARKET
 # ==========================================
+
+@app.route('/api/predictors/following')
+@login_required
+def api_my_following():
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    cur.execute(
+        "SELECT following_id FROM predictor_follows WHERE follower_id = %s",
+        (user_id,)
+    )
+    ids = [r[0] for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return jsonify({'ids': ids})
+
 @app.route('/api/duels/challenge', methods=['POST'])
 @login_required
 def api_duel_challenge():

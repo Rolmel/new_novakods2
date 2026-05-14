@@ -3,6 +3,15 @@
 --  Run once:  psql -U rolmel -d novakods -f /var/www/html/novakods/schema.sql
 -- ============================================================
 
+ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS min_tier TEXT NOT NULL DEFAULT 'unranked';
+
+CREATE TABLE IF NOT EXISTS predictor_follows (
+    follower_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    following_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (follower_id, following_id)
+);
+
 CREATE TABLE IF NOT EXISTS prediction_comments (
     id          BIGSERIAL PRIMARY KEY,
     event_id    INTEGER NOT NULL REFERENCES prediction_events(id) ON DELETE CASCADE,
