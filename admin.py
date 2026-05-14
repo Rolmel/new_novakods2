@@ -59,6 +59,27 @@ BASE_DIR = Path(__file__).parent
 app.config['UPLOAD_FOLDER'] = str(BASE_DIR / "static" / "uploads")
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 
+TIER_RANK = {
+    'unranked': 0,
+    'bronze':   1,
+    'silver':   2,
+    'gold':     3,
+    'expert':   4,
+    'oracle':   5,
+}
+
+def _get_user_tier(conn, user_id: int) -> str:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT tier FROM predictor_tiers WHERE user_id = %s", (user_id,)
+    )
+    row = cur.fetchone()
+    cur.close()
+    return row[0] if row else 'unranked'
+
+def _tier_gte(user_tier: str, required: str) -> bool:
+    return TIER_RANK.get(user_tier, 0) >= TIER_RANK.get(required, 0)
+
 # --- DATABASE (PostgreSQL) ---
 def get_db_connection():
     _db_url = os.environ.get('DATABASE_URL')
@@ -2891,6 +2912,327 @@ def api_profile_avatar():
 # ==========================================
 #  PREDICTION MARKET
 # ==========================================
+@app.route('/api/duels/challenge', methods=['POST'])
+@login_required
+def api_duel_challenge():
+    user_id = session['user_id']
+    data    = request.json or {}
+
+    opponent_id = int(data.get('opponent_id', 0))
+    event_id    = int(data.get('event_id', 0))
+    option_id   = int(data.get('option_id', 0))
+    stake       = int(data.get('stake', 0))
+
+    if opponent_id == user_id:
+        return jsonify({'ok': False, 'error': 'Nevari izaicināt sevi'}), 400
+    if stake < 10:
+        return jsonify({'ok': False, 'error': 'Minimālā likme: 10 coins'}), 400
+
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Event must be open
+    cur.execute(
+        "SELECT status FROM prediction_events WHERE id = %s", (event_id,)
+    )
+    event = cur.fetchone()
+    if not event or event['status'] != 'open':
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Notikums nav pieejams'}), 400
+
+    # Option must belong to this event
+    cur.execute(
+        "SELECT id FROM prediction_options WHERE id = %s AND event_id = %s",
+        (option_id, event_id)
+    )
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nepareiza opcija'}), 400
+
+    # Check challenger has no existing pending duel on this event vs this opponent
+    cur.execute("""
+        SELECT id FROM prediction_duels
+        WHERE challenger_id = %s AND opponent_id = %s
+          AND event_id = %s AND status = 'pending'
+    """, (user_id, opponent_id, event_id))
+    if cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Ielūgums jau nosūtīts'}), 400
+
+    # Deduct stake immediately (held in escrow)
+    balance = get_or_create_balance(conn, user_id)
+    if balance < stake:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nepietiek monētu'}), 400
+
+    cur2 = conn.cursor()
+    cur2.execute(
+        "UPDATE wallets SET balance = balance - %s WHERE user_id = %s",
+        (stake, user_id)
+    )
+    cur2.execute(
+        """INSERT INTO wallet_log (user_id, delta, reason, balance_after)
+           VALUES (%s, %s, 'duel:escrow', %s)""",
+        (user_id, -stake, balance - stake)
+    )
+
+    cur2.execute("""
+        INSERT INTO prediction_duels
+            (challenger_id, opponent_id, event_id, challenger_option_id, stake)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id
+    """, (user_id, opponent_id, event_id, option_id, stake))
+    duel_id = cur2.fetchone()[0]
+
+    # Notify opponent
+    cur2.execute("""
+        INSERT INTO notifications (user_id, message)
+        VALUES (%s, %s)
+    """, (opponent_id,
+          f'⚔️ {session["user_name"]} izaicina tevi prognozēs! '
+          f'{stake} coins uz spēles. /duels'))
+
+    conn.commit()
+    cur.close()
+    cur2.close()
+    conn.close()
+
+    return jsonify({'ok': True, 'duel_id': duel_id})
+
+
+@app.route('/api/duels/mine')
+@login_required
+def api_my_duels():
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT
+            d.*,
+            pe.title        AS event_title,
+            po_c.label      AS challenger_label,
+            po_o.label      AS opponent_label,
+            uc.username     AS challenger_name,
+            uo.username     AS opponent_name
+        FROM prediction_duels d
+        JOIN prediction_events  pe  ON pe.id  = d.event_id
+        JOIN prediction_options po_c ON po_c.id = d.challenger_option_id
+        LEFT JOIN prediction_options po_o ON po_o.id = d.opponent_option_id
+        JOIN users uc ON uc.id = d.challenger_id
+        JOIN users uo ON uo.id = d.opponent_id
+        WHERE d.challenger_id = %s OR d.opponent_id = %s
+        ORDER BY d.created_at DESC
+        LIMIT 30
+    """, (user_id, user_id))
+    duels = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return jsonify({'duels': duels, 'user_id': user_id})
+
+
+@app.route('/api/duels/<int:duel_id>/accept', methods=['POST'])
+@login_required
+def api_duel_accept(duel_id):
+    user_id   = session['user_id']
+    data      = request.json or {}
+    option_id = int(data.get('option_id', 0))
+
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute(
+        "SELECT * FROM prediction_duels WHERE id = %s AND opponent_id = %s",
+        (duel_id, user_id)
+    )
+    duel = cur.fetchone()
+    if not duel:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Duelis nav atrasts'}), 404
+    if duel['status'] != 'pending':
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Duelis vairs nav aktīvs'}), 400
+
+    # Can't pick same option as challenger
+    if option_id == duel['challenger_option_id']:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Izvēlies citu opciju'}), 400
+
+    # Verify option belongs to same event
+    cur.execute(
+        "SELECT id FROM prediction_options WHERE id = %s AND event_id = %s",
+        (option_id, duel['event_id'])
+    )
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nepareiza opcija'}), 400
+
+    stake   = duel['stake']
+    balance = get_or_create_balance(conn, user_id)
+    if balance < stake:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nepietiek monētu'}), 400
+
+    cur2 = conn.cursor()
+    cur2.execute(
+        "UPDATE wallets SET balance = balance - %s WHERE user_id = %s",
+        (stake, user_id)
+    )
+    cur2.execute(
+        """INSERT INTO wallet_log (user_id, delta, reason, balance_after)
+           VALUES (%s, %s, 'duel:escrow', %s)""",
+        (user_id, -stake, balance - stake)
+    )
+    cur2.execute("""
+        UPDATE prediction_duels
+        SET status = 'accepted', opponent_option_id = %s
+        WHERE id = %s
+    """, (option_id, duel_id))
+
+    # Notify challenger
+    cur2.execute("""
+        INSERT INTO notifications (user_id, message)
+        VALUES (%s, %s)
+    """, (duel['challenger_id'],
+          f'⚔️ {session["user_name"]} pieņēma tavu izaicinājumu! '
+          f'Uz spēles: {stake * 2} coins.'))
+
+    conn.commit()
+    cur.close()
+    cur2.close()
+    conn.close()
+
+    return jsonify({'ok': True})
+
+@app.route('/api/duels/<int:duel_id>/decline', methods=['POST'])
+@login_required
+def api_duel_decline(duel_id):
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute(
+        "SELECT * FROM prediction_duels WHERE id = %s AND opponent_id = %s AND status='pending'",
+        (duel_id, user_id)
+    )
+    duel = cur.fetchone()
+    if not duel:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav atrasts'}), 404
+
+    cur2 = conn.cursor()
+    cur2.execute(
+        "UPDATE prediction_duels SET status = 'declined' WHERE id = %s", (duel_id,)
+    )
+    # Refund challenger
+    cur2.execute(
+        "UPDATE wallets SET balance = balance + %s WHERE user_id = %s",
+        (duel['stake'], duel['challenger_id'])
+    )
+    cur2.execute(
+        """INSERT INTO wallet_log (user_id, delta, reason, balance_after)
+           SELECT %s, %s, 'duel:refund',
+                  balance FROM wallets WHERE user_id = %s""",
+        (duel['challenger_id'], duel['stake'], duel['challenger_id'])
+    )
+    cur2.execute(
+        "INSERT INTO notifications (user_id, message) VALUES (%s, %s)",
+        (duel['challenger_id'],
+         f'⚔️ {session["user_name"]} noraidīja tavu izaicinājumu. '
+         f'{duel["stake"]} coins atgriezti.')
+    )
+    conn.commit()
+    cur.close()
+    cur2.close()
+    conn.close()
+    return jsonify({'ok': True})
+
+def _resolve_duels_for_event(conn, event_id: int, winning_option_id: int):
+    """
+    Called after prediction_events is resolved.
+    Pays out all accepted duels for this event.
+    """
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT * FROM prediction_duels
+        WHERE event_id = %s AND status = 'accepted'
+    """, (event_id,))
+    duels = cur.fetchall()
+
+    cur2 = conn.cursor()
+    for d in duels:
+        pot = d['stake'] * 2
+
+        if d['challenger_option_id'] == winning_option_id:
+            winner_id = d['challenger_id']
+            loser_id  = d['opponent_id']
+        elif d['opponent_option_id'] == winning_option_id:
+            winner_id = d['opponent_id']
+            loser_id  = d['challenger_id']
+        else:
+            # Neither picked winner — refund both (edge case: >2 options)
+            for uid in (d['challenger_id'], d['opponent_id']):
+                cur2.execute(
+                    "UPDATE wallets SET balance = balance + %s WHERE user_id = %s",
+                    (d['stake'], uid)
+                )
+            cur2.execute(
+                "UPDATE prediction_duels SET status='resolved', resolved_at=NOW() WHERE id=%s",
+                (d['id'],)
+            )
+            continue
+
+        # Pay winner
+        cur2.execute(
+            "UPDATE wallets SET balance = balance + %s WHERE user_id = %s",
+            (pot, winner_id)
+        )
+        cur2.execute(
+            """INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+               SELECT %s, %s, 'duel:win', %s, balance
+               FROM wallets WHERE user_id = %s""",
+            (winner_id, pot, str(d['id']), winner_id)
+        )
+        cur2.execute(
+            "UPDATE prediction_duels SET status='resolved', winner_id=%s, resolved_at=NOW() WHERE id=%s",
+            (winner_id, d['id'])
+        )
+
+        # Notifications
+        cur2.execute(
+            "INSERT INTO notifications (user_id, message) VALUES (%s, %s)",
+            (winner_id, f'⚔️ Tu uzvarēji dueli! +{pot} coins.')
+        )
+        cur2.execute(
+            "INSERT INTO notifications (user_id, message) VALUES (%s, %s)",
+            (loser_id, f'⚔️ Tu zaudēji dueli. -{d["stake"]} coins.')
+        )
+
+    conn.commit()
+    cur.close()
+    cur2.close()
+
+@app.route('/api/notifications')
+@login_required
+def api_notifications():
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, message, is_read, created_at
+        FROM notifications
+        WHERE user_id = %s
+        ORDER BY created_at DESC LIMIT 20
+    """, (user_id,))
+    notes = [dict(r) for r in cur.fetchall()]
+    cur.execute(
+        "UPDATE notifications SET is_read = TRUE WHERE user_id = %s AND is_read = FALSE",
+        (user_id,)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'notifications': notes})
+
 def _calculate_tier(stats: dict) -> str:
     """
     Tier logic based on win rate + minimum sample size.
@@ -3118,50 +3460,75 @@ def prediction_detail(event_id):
 
 @app.route('/api/predictions/create', methods=['POST'])
 @login_required
-@admin_required
 def api_prediction_create():
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    tier    = _get_user_tier(conn, user_id)
+    is_admin = session.get('is_admin', False)
+
+    # Must be expert+ or admin
+    if not is_admin and not _tier_gte(tier, 'expert'):
+        conn.close()
+        return jsonify({
+            'error': 'Vajadzīgs Expert līmenis vai augstāks'
+        }), 403
+
     data        = request.json or {}
     title       = data.get('title', '').strip()[:200]
     description = data.get('description', '').strip()
     category    = data.get('category', 'general')
     closes_at   = data.get('closes_at')
     options     = data.get('options', [])
+    min_tier    = data.get('min_tier', 'unranked')
+
+    # Experts can only create markets accessible to everyone or bronze+
+    # Oracles can gate up to gold
+    # Admins can gate to any tier
+    allowed_min_tiers = {
+        'expert': ['unranked', 'bronze', 'silver'],
+        'oracle': ['unranked', 'bronze', 'silver', 'gold'],
+    }
+    if not is_admin:
+        allowed = allowed_min_tiers.get(tier, ['unranked'])
+        if min_tier not in allowed:
+            min_tier = 'unranked'
 
     if not title or not closes_at or len(options) < 2:
-        return jsonify({'error': 'Nepieciešams nosaukums, beigu datums un vismaz 2 opcijas'}), 400
+        conn.close()
+        return jsonify({
+            'error': 'Nepieciešams nosaukums, datums un vismaz 2 opcijas'
+        }), 400
 
-    conn = None
+    options = [o.strip()[:100] for o in options if o.strip()]
+
     try:
-        conn = get_db_connection()
-        cur  = conn.cursor()
+        cur = conn.cursor()
         cur.execute("""
-            INSERT INTO prediction_events (title, description, category, created_by, closes_at)
-            VALUES (%s, %s, %s, %s, %s) RETURNING id
-        """, (title, description, category, session['user_id'], closes_at))
+            INSERT INTO prediction_events
+                (title, description, category, created_by, closes_at,
+                 min_tier, creator_tier)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (title, description, category, user_id,
+              closes_at, min_tier, tier))
         event_id = cur.fetchone()[0]
 
         equal_price = round(1.0 / len(options), 4)
         for label in options:
-            label = label.strip()[:100]
-            if label:
-                cur.execute("""
-                    INSERT INTO prediction_options (event_id, label, price)
-                    VALUES (%s, %s, %s)
-                """, (event_id, label, equal_price))
+            cur.execute("""
+                INSERT INTO prediction_options (event_id, label, price)
+                VALUES (%s, %s, %s)
+            """, (event_id, label, equal_price))
 
         conn.commit()
         cur.close()
         conn.close()
         return jsonify({'ok': True, 'event_id': event_id})
+
     except Exception as e:
-        if conn:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            conn.close()
-        app.logger.error(f'api_prediction_create error: {e}')
-        return jsonify({'error': f'Datu bāzes kļūda: {str(e)}'}), 500
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/predictions/<int:event_id>/bet', methods=['POST'])
@@ -3183,6 +3550,15 @@ def api_prediction_bet(event_id):
     if not event or event['status'] != 'open':
         conn.close()
         return jsonify({'error': 'Notikums nav pieejams likmēm'}), 400
+
+    # Tier gate
+    user_tier = _get_user_tier(conn, user_id)
+    if not _tier_gte(user_tier, event['min_tier']):
+        conn.close()
+        return jsonify({
+            'error': f'Šis tirgus prasa {event["min_tier"]} līmeni. '
+                     f'Tavs līmenis: {user_tier}'
+        }), 403
 
     cur.execute("""
         SELECT * FROM prediction_options WHERE id = %s AND event_id = %s
@@ -3329,6 +3705,7 @@ def api_prediction_resolve(event_id):
         'winner_count':   len(winners)
     }, room=f'prediction_{event_id}')
 
+    _resolve_duels_for_event(conn, event_id, winning_option_id)
     return jsonify({'ok': True, 'total_pot': total_pot, 'winners': len(winners)})
 
 @app.route('/api/predictions/leaderboard')

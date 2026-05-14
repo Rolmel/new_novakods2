@@ -129,6 +129,75 @@
       }
       </script>
     </nav>
+    {% if session.user_id %}
+      <div id="notif-wrap" style="position:relative;cursor:pointer" onclick="toggleNotifPanel()">
+        <span style="font-size:1.3rem">🔔</span>
+        <span id="notif-dot" style="
+          display:none;position:absolute;top:-2px;right:-4px;
+          width:9px;height:9px;border-radius:50%;
+          background:#ff1744;border:2px solid var(--bg-main);
+        "></span>
+        <div id="notif-panel" style="
+          display:none;position:absolute;top:36px;right:0;
+          width:320px;background:#111118;border:1px solid #2a2a3a;
+          border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.6);
+          z-index:999;max-height:360px;overflow-y:auto;
+          font-family:'Rajdhani',sans-serif;
+        "></div>
+      </div>
+
+      <script>
+      let _notifOpen = false;
+
+      async function loadNotifications() {
+          const res  = await fetch('/api/notifications');
+          const data = await res.json();
+          const panel = document.getElementById('notif-panel');
+          const dot   = document.getElementById('notif-dot');
+
+          const unread = data.notifications.filter(n => !n.is_read).length;
+          dot.style.display = unread > 0 ? 'block' : 'none';
+
+          if (!data.notifications.length) {
+              panel.innerHTML = '<div style="padding:16px;color:#555;text-align:center;">Nav paziņojumu</div>';
+              return;
+          }
+          panel.innerHTML = data.notifications.map(n => `
+              <div style="
+                  padding:12px 16px;border-bottom:1px solid #1a1a2e;
+                  font-size:0.83rem;color:${n.is_read ? '#555' : '#e0e0e0'};
+              ">
+                  ${n.message}
+                  <div style="font-size:0.72rem;color:#333;margin-top:3px;">
+                      ${new Date(n.created_at).toLocaleString('lv-LV')}
+                  </div>
+              </div>
+          `).join('');
+      }
+
+      function toggleNotifPanel() {
+          _notifOpen = !_notifOpen;
+          document.getElementById('notif-panel').style.display = _notifOpen ? 'block' : 'none';
+          if (_notifOpen) loadNotifications();
+      }
+
+      document.addEventListener('click', e => {
+          const wrap = document.getElementById('notif-wrap');
+          if (wrap && !wrap.contains(e.target)) {
+              _notifOpen = false;
+              document.getElementById('notif-panel').style.display = 'none';
+          }
+      });
+
+      // Poll for new notifications every 30s
+      setInterval(async () => {
+          const res  = await fetch('/api/notifications');
+          const data = await res.json();
+          const unread = data.notifications.filter(n => !n.is_read).length;
+          document.getElementById('notif-dot').style.display = unread > 0 ? 'block' : 'none';
+      }, 30000);
+      </script>
+      {% endif %}
 
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}

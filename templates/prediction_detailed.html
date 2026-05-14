@@ -150,6 +150,73 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); margin-bottom:6px
       {% else %}
       <div style="color:#333;text-align:center;padding:20px;">Nav likmju vēl.</div>
       {% endfor %}
+
+      {% if event.status == 'open' and not my_position %}
+        <div class="panel" style="margin-top:12px;">
+          <div class="panel-title">⚔️ Izaicināt Spēlētāju</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <input id="duel-opponent" placeholder="Lietotājvārds..."
+                  style="flex:1;padding:9px 12px;background:#0a0a14;border:1px solid #333;
+                          border-radius:8px;color:#fff;font-family:'Rajdhani',sans-serif;">
+            <input id="duel-stake" type="number" placeholder="Likme" min="10" value="50"
+                  style="width:90px;padding:9px 12px;background:#0a0a14;border:1px solid #333;
+                          border-radius:8px;color:#fff;font-family:'Rajdhani',sans-serif;">
+            <button onclick="sendDuelChallenge()"
+                    style="padding:9px 20px;background:linear-gradient(135deg,#ff1744,#cc0022);
+                          border:none;border-radius:8px;color:#fff;font-weight:700;
+                          font-family:'Rajdhani',sans-serif;cursor:pointer;">
+              ⚔️ Izaicināt
+            </button>
+          </div>
+          <div style="font-size:0.78rem;color:#555;margin-top:6px;">
+            Tu izvēlies savu opciju, pretinieks izvēlas citu. Uzvarētājs paņem visu banku.
+          </div>
+          <div id="duel-msg" style="margin-top:8px;font-size:0.85rem;"></div>
+        </div>
+        {% endif %}
+
+        <script>
+        async function sendDuelChallenge() {
+            const opponentName = document.getElementById('duel-opponent').value.trim();
+            const stake        = parseInt(document.getElementById('duel-stake').value);
+            const msg          = document.getElementById('duel-msg');
+
+            if (!opponentName || !stake) return;
+            if (!selectedOptionId) {
+                msg.style.color = '#ff8888';
+                msg.textContent = '❌ Vispirms izvēlies savu opciju augstāk';
+                return;
+            }
+
+            // Resolve username to user_id
+            const search = await fetch(`/api/friends/search?q=${encodeURIComponent(opponentName)}`);
+            const users  = await search.json();
+            const match  = users.find(u => u.username.toLowerCase() === opponentName.toLowerCase());
+            if (!match) {
+                msg.style.color = '#ff8888';
+                msg.textContent = '❌ Lietotājs nav atrasts';
+                return;
+            }
+
+            const res  = await fetch('/api/duels/challenge', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    opponent_id: match.id,
+                    event_id:    EVENT_ID,
+                    option_id:   selectedOptionId,
+                    stake:       stake
+                })
+            });
+            const data = await res.json();
+            if (data.ok) {
+                msg.style.color = '#00e676';
+                msg.textContent = `✅ Izaicinājums nosūtīts ${opponentName}!`;
+            } else {
+                msg.style.color = '#ff8888';
+                msg.textContent = '❌ ' + data.error;
+            }
+        }
+        </script>
     </div>
   </div>
 </div>

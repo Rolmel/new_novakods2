@@ -3,6 +3,31 @@
 --  Run once:  psql -U rolmel -d novakods -f /var/www/html/novakods/schema.sql
 -- ============================================================
 
+ALTER TABLE prediction_events
+    ADD COLUMN IF NOT EXISTS min_tier TEXT NOT NULL DEFAULT 'unranked',
+    ADD COLUMN IF NOT EXISTS creator_tier TEXT;
+-- creator_tier stores what tier the user was when they created it (display only)
+
+CREATE TABLE IF NOT EXISTS prediction_duels (
+    id            SERIAL PRIMARY KEY,
+    challenger_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    opponent_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_id      INTEGER NOT NULL REFERENCES prediction_events(id) ON DELETE CASCADE,
+    challenger_option_id INTEGER NOT NULL REFERENCES prediction_options(id),
+    opponent_option_id   INTEGER,  -- NULL until opponent accepts
+    stake         INTEGER NOT NULL CHECK (stake > 0),
+    status        TEXT NOT NULL DEFAULT 'pending',
+    -- pending | accepted | declined | resolved | expired
+    winner_id     INTEGER REFERENCES users(id),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at    TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '24 hours',
+    resolved_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS duel_challenger ON prediction_duels(challenger_id);
+CREATE INDEX IF NOT EXISTS duel_opponent   ON prediction_duels(opponent_id);
+CREATE INDEX IF NOT EXISTS duel_event      ON prediction_duels(event_id, status);
+
 
 CREATE TABLE IF NOT EXISTS achievements (
     slug        TEXT PRIMARY KEY,

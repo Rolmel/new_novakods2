@@ -89,49 +89,36 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
   <h1>📈 Prognozes</h1>
   <div class="balance-bar">💰 {{ "%.2f"|format(balance) }} coins</div>
 
-  {% if is_admin %}
+  {% if is_admin or tier_rank[user_tier] >= tier_rank['expert'] %}
   <details class="create-panel">
-    <summary>⚙️ Izveidot jaunu notikumu (Admin)</summary>
+    <summary>
+      {% if is_admin %}⚙️ Izveidot notikumu (Admin)
+      {% elif user_tier == 'oracle' %}🔮 Izveidot notikumu (Oracle)
+      {% else %}⭐ Izveidot notikumu (Expert)
+      {% endif %}
+    </summary>
     <div class="create-form" id="create-form">
+
+      {{/* existing fields */}}
+
+      {% if is_admin or user_tier == 'oracle' %}
       <div>
-        <label>Nosaukums</label>
-        <input id="cf-title" type="text" placeholder="piem. Vai Bitcoin sasniegs $100k līdz gada beigām?">
+        <label>Minimālais līmenis</label>
+        <select id="cf-min-tier">
+          <option value="unranked">Visi</option>
+          <option value="bronze">Bronze+</option>
+          <option value="silver">Silver+</option>
+          {% if is_admin %}<option value="gold">Gold+</option>{% endif %}
+          {% if is_admin %}<option value="expert">Expert+</option>{% endif %}
+          {% if is_admin %}<option value="oracle">Oracle Only</option>{% endif %}
+        </select>
       </div>
-      <div>
-        <label>Apraksts (neobligāts)</label>
-        <textarea id="cf-desc" rows="2" placeholder="Papildu informācija..."></textarea>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div>
-          <label>Kategorija</label>
-          <select id="cf-cat">
-            <option value="general">Vispārīgs</option>
-            <option value="sports">Sports</option>
-            <option value="crypto">Crypto</option>
-            <option value="politics">Politika</option>
-          </select>
-        </div>
-        <div>
-          <label>Termiņš</label>
-          <input id="cf-closes" type="datetime-local">
-        </div>
-      </div>
-      <div>
-        <label>Opcijas</label>
-        <div class="options-list" id="options-list">
-          <div class="option-inp"><input type="text" placeholder="Opcija 1 (piem. Jā)"></div>
-          <div class="option-inp"><input type="text" placeholder="Opcija 2 (piem. Nē)"></div>
-        </div>
-        <button class="add-opt-btn" onclick="addOption()" style="margin-top:6px;width:100%;">+ Pievienot opciju</button>
-      </div>
-      <div>
-        <button class="create-submit" onclick="submitPrediction()">🚀 Izveidot</button>
-        <div class="msg-box" id="create-msg"></div>
-      </div>
+      {% endif %}
+
+      {{/* submit button */}}
     </div>
   </details>
   {% endif %}
-
   <div class="filter-row">
     <button class="filter-btn active" onclick="filterEvents('all', this)">Visi</button>
     <button class="filter-btn" onclick="filterEvents('open', this)">🟢 Aktīvie</button>
@@ -140,26 +127,25 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
 
   <div class="events-grid" id="events-grid">
     {% for e in events %}
-    {% set total_vol = e.total_volume or 1 %}
-    <a class="event-card {{ e.status }}" href="/predictions/{{ e.id }}" data-status="{{ e.status }}">
-      <div class="ec-top">
-        <div>
-          <div class="ec-title">{{ e.title }}</div>
-          <div class="ec-meta">
-            📁 {{ e.category }} &nbsp;·&nbsp;
-            ⏰ {{ e.closes_at.strftime('%d.%m.%Y %H:%M') if e.closes_at else '—' }}
-            {% if e.total_volume %}&nbsp;·&nbsp; 💰 {{ "%.0f"|format(e.total_volume) }} coins bankas{% endif %}
-          </div>
+      <a class="event-card {{ e.status }} {{ 'locked-card' if e.locked else '' }}"
+        href="{{ '/predictions/' + e.id|string if not e.locked else '#' }}"
+        data-status="{{ e.status }}"
+        {% if e.locked %}onclick="showTierNag('{{ e.min_tier }}')"{% endif %}>
+
+        {% if e.min_tier != 'unranked' %}
+        <div class="tier-badge tier-{{ e.min_tier }}">
+          {% if e.min_tier == 'bronze'  %}🥉 Bronze+
+          {% elif e.min_tier == 'silver' %}🥈 Silver+
+          {% elif e.min_tier == 'gold'   %}🥇 Gold+
+          {% elif e.min_tier == 'expert' %}⭐ Expert+
+          {% elif e.min_tier == 'oracle' %}🔮 Oracle
+          {% endif %}
         </div>
-        <div class="ec-badges">
-          <span class="badge badge-cat">{{ e.category }}</span>
-          <span class="badge badge-{{ e.status }}">
-            {% if e.status == 'open' %}🟢 Aktīvs
-            {% elif e.status == 'resolved' %}🏆 Atrisināts
-            {% else %}🔒 Slēgts{% endif %}
-          </span>
-        </div>
-      </div>
+        {% endif %}
+
+        {% if e.locked %}
+        <div class="lock-overlay">🔒</div>
+        {% endif %}
 
       {% if e.options %}
       <div class="ec-bars">
@@ -232,7 +218,7 @@ async function submitPrediction() {
   try {
     const res  = await fetch('/api/predictions/create', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ title, description: desc, category: cat, closes_at: closes, options })
+      body: JSON.stringify({ title, description: desc, category: cat, closes_at: closes, options, min_tier })
     });
     const data = await res.json();
     if (data.ok) {
@@ -328,10 +314,55 @@ async function loadPredictionLeaderboard() {
 
     html += `</tbody></table></div>`;
 
-    const container = document.getElementById('events-grid');
+    const container = document.getElementById('<event>s-grid');
     container.insertAdjacentHTML('afterend', html);
 }
 
 loadPredictionLeaderboard();
+
+
+
+
+function showTierNag(required) {
+    const ICONS = {
+        bronze: '🥉', silver: '🥈', gold: '🥇',
+        expert: '⭐', oracle: '🔮'
+    };
+    const div = document.createElement('div');
+    div.style.cssText = `
+        position:fixed;inset:0;background:rgba(0,0,0,.75);
+        display:flex;align-items:center;justify-content:center;z-index:999;
+    `;
+    div.innerHTML = `
+        <div style="
+            background:#111118;border:1px solid #f5c842;border-radius:16px;
+            padding:32px;text-align:center;max-width:340px;
+            font-family:'Rajdhani',sans-serif;
+        ">
+            <div style="font-size:3rem;margin-bottom:12px;">
+                ${ICONS[required] || '🔒'}
+            </div>
+            <div style="color:#f5c842;font-weight:700;font-size:1.2rem;
+                        margin-bottom:8px;">
+                Slēgts tirgus
+            </div>
+            <div style="color:#888;font-size:0.9rem;line-height:1.6;">
+                Šis tirgus prasa <strong style="color:#e0e0e0">${required}</strong>
+                līmeni.<br>
+                Liec vairāk prognozes, lai paaugstinātu rangu.
+            </div>
+            <button onclick="this.closest('div[style]').remove()"
+                    style="margin-top:20px;padding:10px 28px;
+                           background:linear-gradient(135deg,#f5c842,#e6a800);
+                           border:none;border-radius:8px;font-weight:700;
+                           cursor:pointer;font-family:'Rajdhani',sans-serif;">
+                Sapratu
+            </button>
+        </div>`;
+    div.addEventListener('click', e => {
+        if (e.target === div) div.remove();
+    });
+    document.body.appendChild(div);
+}
 </script>
 {% endblock %}
