@@ -3803,8 +3803,10 @@ def predictions_list():
         """, (event_ids,))
         for o in cur.fetchall():
             options_by_event.setdefault(o['event_id'], []).append(dict(o))
+    user_tier = _get_user_tier(conn, session['user_id'])
+
     for e in events:
-        e['options'] = options_by_event.get(e['id'], [])
+        e['locked'] = not _tier_gte(user_tier, e.get('min_tier', 'unranked'))
 
     balance = get_or_create_balance(conn, session['user_id'])
     cur.close()
@@ -3813,7 +3815,9 @@ def predictions_list():
                            events=events,
                            positions=positions,
                            balance=balance,
-                           is_admin=session.get('is_admin', False))
+                           is_admin=session.get('is_admin', False),
+                           user_tier=user_tier,
+                           tier_rank=TIER_RANK)
 
 
 @app.route('/predictions/<int:event_id>')

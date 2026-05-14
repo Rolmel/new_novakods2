@@ -112,16 +112,33 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
     <summary>
       {% if is_admin %}⚙️ Izveidot notikumu (Admin)
       {% elif user_tier == 'oracle' %}🔮 Izveidot notikumu (Oracle)
-      {% else %}⭐ Izveidot notikumu (Expert)
-      {% endif %}
+      {% else %}⭐ Izveidot notikumu (Expert){% endif %}
     </summary>
     <div class="create-form" id="create-form">
-
-      {{/* existing fields */}}
-
-      {% if is_admin or user_tier == 'oracle' %}
+      <div><label>Nosaukums</label>
+        <input type="text" id="cf-title" maxlength="200" placeholder="Notikuma jautājums..."></div>
+      <div><label>Apraksts</label>
+        <textarea id="cf-desc" rows="2" placeholder="Papildu info (neobligāts)"></textarea></div>
+      <div><label>Kategorija</label>
+        <select id="cf-cat">
+          <option value="general">General</option>
+          <option value="sports">Sports</option>
+          <option value="crypto">Crypto</option>
+          <option value="politics">Politics</option>
+        </select>
+      </div>
+      <div><label>Beigu datums</label>
+        <input type="datetime-local" id="cf-closes"></div>
       <div>
-        <label>Minimālais līmenis</label>
+        <label>Opcijas</label>
+        <div class="options-list" id="options-list">
+          <div class="option-inp"><input type="text" placeholder="Opcija 1 (piem. Jā)"></div>
+          <div class="option-inp"><input type="text" placeholder="Opcija 2 (piem. Nē)"></div>
+        </div>
+        <button type="button" class="add-opt-btn" onclick="addOption()">+ Pievienot opciju</button>
+      </div>
+      {% if is_admin or user_tier == 'oracle' %}
+      <div><label>Minimālais līmenis</label>
         <select id="cf-min-tier">
           <option value="unranked">Visi</option>
           <option value="bronze">Bronze+</option>
@@ -131,12 +148,15 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
           {% if is_admin %}<option value="oracle">Oracle Only</option>{% endif %}
         </select>
       </div>
+      {% else %}
+      <input type="hidden" id="cf-min-tier" value="unranked">
       {% endif %}
-
-      {{/* submit button */}}
+      <div class="msg-box" id="create-msg"></div>
+      <button type="button" class="create-submit" onclick="submitPrediction()">🚀 Publicēt</button>
     </div>
   </details>
   {% endif %}
+
   <div class="filter-row">
     <button class="filter-btn active" onclick="filterEvents('all', this)">Visi</button>
     <button class="filter-btn" onclick="filterEvents('open', this)">🟢 Aktīvie</button>
@@ -166,14 +186,18 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
         {% endif %}
 
       {% if e.options %}
+      {% set ns = namespace(total=0) %}
+      {% for o in e.options %}{% set ns.total = ns.total + o.volume %}{% endfor %}
       <div class="ec-bars">
-        {% for e in events %}
-          {% set ns = namespace(total=0) %}
-          {% for o in e.options %}{% set ns.total = ns.total + o.volume %}{% endfor %}
-          {% for o in e.options[:4] %}
-            {% set pct = ((o.volume / ns.total * 100) | round(1)) if ns.total > 0 else (100 / e.options|length) %}
-            {# your bar html here using pct #}
-          {% endfor %}
+        {% for o in e.options[:4] %}
+        {% set pct = ((o.volume / ns.total * 100) | round(1)) if ns.total > 0 else (100 / e.options|length) %}
+        <div class="bar-wrap">
+          <div class="bar-label">{{ o.label[:14] }}</div>
+          <div class="bar-track">
+            <div class="bar-fill bar-fill-{{ loop.index0 }}" style="width:{{ pct }}%"></div>
+          </div>
+          <div class="bar-pct">{{ pct }}%</div>
+        </div>
         {% endfor %}
       </div>
       {% endif %}
@@ -211,6 +235,7 @@ async function submitPrediction() {
   const desc    = document.getElementById('cf-desc').value.trim();
   const cat     = document.getElementById('cf-cat').value;
   const closes  = document.getElementById('cf-closes').value;
+  const minTier = document.getElementById('cf-min-tier').value;
   const options = [...document.querySelectorAll('#options-list input')]
                     .map(i => i.value.trim()).filter(Boolean);
   const msg = document.getElementById('create-msg');
@@ -233,7 +258,8 @@ async function submitPrediction() {
   try {
     const res  = await fetch('/api/predictions/create', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ title, description: desc, category: cat, closes_at: closes, options, min_tier })
+      body: JSON.stringify({ title, description: desc, category: cat,
+                             closes_at: closes, options, min_tier: minTier })
     });
     const data = await res.json();
     if (data.ok) {
@@ -246,8 +272,7 @@ async function submitPrediction() {
     }
   } catch (e) {
     msg.className = 'msg-box msg-err';
-    msg.textContent = '❌ Servera kļūda — pārbaudī konsoli (F12)';
-    console.error('createEvent error:', e);
+    msg.textContent = '❌ Servera kļūda';
   }
 }
 
