@@ -83,6 +83,24 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
 .msg-box { padding:10px; border-radius:8px; margin-top:8px; font-weight:600; display:none; }
 .msg-ok  { background:#00e67622; border:1px solid var(--green); color:var(--green); }
 .msg-err { background:#ff174422; border:1px solid var(--red); color:#ff8888; }
+
+.locked-card { opacity: 0.65; cursor: pointer !important; position: relative; }
+.locked-card:hover { border-color: #f5c842 !important; opacity: 0.85; }
+.lock-overlay {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 2.5rem; opacity: 0.4; pointer-events: none;
+}
+.tier-badge {
+    position: absolute; top: 12px; right: 12px;
+    padding: 2px 10px; border-radius: 20px;
+    font-size: 0.72rem; font-weight: 700;
+}
+.tier-bronze { background:#cd7f3218; border:1px solid #cd7f32; color:#cd7f32; }
+.tier-silver { background:#c0c0c018; border:1px solid #c0c0c0; color:#c0c0c0; }
+.tier-gold   { background:#f5c84218; border:1px solid #f5c842;  color:#f5c842; }
+.tier-expert { background:#2196f318; border:1px solid #2196f3;  color:#2196f3; }
+.tier-oracle { background:#a855f718; border:1px solid #a855f7;  color:#a855f7; }
 </style>
 
 <div class="page">
