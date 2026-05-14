@@ -687,21 +687,20 @@ def bingo_call(app, session, request):
     balance   = None
 
     if has_bingo:
-        # After bingo_call_route returns, we can't easily hook in.
-        # Instead add directly inside redis_games.py bingo_call(), after _record_tx call:
-        # (add this inside the `if has_bingo:` block in redis_games.py)
-        if winnings >= 500:
-            try:
-                from admin import _post_feed
-                _post_feed(user_id, 'bingo', 'bingo', winnings)
-            except Exception:
-                pass
         multiplier = max(2, 30 - len(called))
         winnings   = round(bet * multiplier, 2)
         bal        = _get_balance(app, user_id) + winnings
         _set_balance(app, user_id, bal)
         _record_tx(app, user_id, 'bingo', bet, f'BINGO! {len(called)} izsaukumi x{multiplier}', winnings, bal)
         balance = bal
+
+        if winnings >= 500:   # now winnings is actually set
+            try:
+                from admin import _post_feed
+                _post_feed(user_id, 'bingo', 'bingo', winnings)
+            except Exception:
+                pass
+
         _r().delete(f'game:bingo:{user_id}')
     else:
         state['called'] = called

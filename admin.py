@@ -1707,16 +1707,19 @@ def api_slots():
     cur.close()
     conn.close()
 
-    new_ach = check_achievements(conn, user_id, {
+    conn2 = get_db_connection()
+    new_ach = check_achievements(conn2, user_id, {
         'game': 'slots', 'net': winnings, 'result': result
     })
+    conn2.close()
 
     return jsonify({
         "reels": reels,
         "result": result,
         "winnings": winnings,
-        "net": winnings, 
-        "balance": balance
+        "net": winnings,
+        "balance": balance,
+        "achievements": new_ach,
     })
 
 # ==========================================
@@ -2811,23 +2814,20 @@ def profile_page(username):
     profile = _get_profile(conn, owner['id'])
     stats   = _profile_stats(conn, owner['id'])
     conn.commit()
-    cur.close()
-    conn.close()
-
-    # inside profile_page(), after fetching profile:
-    is_own_profile = ('user_id' in session and session['user_id'] == owner['id'])
 
     equipped_skin_name = None
     if profile and profile.get('equipped_skin'):
-        cur.execute("SELECT name FROM cosmetics WHERE id=%s", (profile['equipped_skin'],))
+        cur.execute("SELECT name FROM cosmetics WHERE id = %s", (profile['equipped_skin'],))
         skin_row = cur.fetchone()
         equipped_skin_name = skin_row['name'] if skin_row else None
 
-    profile_dict = dict(profile)
-    profile_dict['equipped_skin_name'] = equipped_skin_name
-
     cur.close()
     conn.close()
+
+    is_own_profile = ('user_id' in session and session['user_id'] == owner['id'])
+
+    profile_dict = dict(profile)
+    profile_dict['equipped_skin_name'] = equipped_skin_name
 
     return render_template(
         'profile.html',
@@ -3689,14 +3689,9 @@ def api_prediction_resolve(event_id):
     """, (winning_option['label'], event_id))
 
     conn.commit()
-    
 
     _update_prediction_stats(conn, event_id, winning_option_id)
-    
-    socketio.emit('prediction_resolved', { ... })    
-    cur.close()
-    cur2.close()
-    conn.close()
+    _resolve_duels_for_event(conn, event_id, winning_option_id)  # before close
 
     socketio.emit('prediction_resolved', {
         'event_id':       event_id,
@@ -3705,7 +3700,10 @@ def api_prediction_resolve(event_id):
         'winner_count':   len(winners)
     }, room=f'prediction_{event_id}')
 
-    _resolve_duels_for_event(conn, event_id, winning_option_id)
+    cur.close()
+    cur2.close()
+    conn.close()
+
     return jsonify({'ok': True, 'total_pot': total_pot, 'winners': len(winners)})
 
 @app.route('/api/predictions/leaderboard')
