@@ -16,16 +16,118 @@
 <body>
 <div class="container">
     <nav>
-        <a href="/">NovaKods Portal</a>
-        {% if session.user_id %}
-        <span>
-            Sveiks, <a href="/profile"><strong>{{ session.user_name }}</strong></a>! | <a href="/logout">Iziet</a>
-        </span>
-        {% else %}
-        <span>
-            <a href="/login">Ienākt</a> | <a href="/register">Reģistrēties</a>
-        </span>
-        {% endif %}
+<nav>
+          <a href="/">NovaKods Portal</a>
+
+          <div id="nav-search-wrap">
+              <input id="nav-search" placeholder="🔍 Meklēt spēlētāju..." 
+                    oninput="navSearch()" onblur="setTimeout(()=>document.getElementById('nav-results').innerHTML='',200)"
+                    autocomplete="off">
+              <div id="nav-results"></div>
+          </div>
+
+          {% if session.user_id %}
+          <span>
+              Sveiks, <a href="/profile"><strong>{{ session.user_name }}</strong></a>! | <a href="/logout">Iziet</a>
+          </span>
+          {% else %}
+          <span>
+              <a href="/login">Ienākt</a> | <a href="/register">Reģistrēties</a>
+          </span>
+          {% endif %}
+      </nav>
+
+      <style>
+      #nav-search-wrap {
+          position:relative;
+          flex:1;
+          max-width:280px;
+          margin:0 16px;
+      }
+      #nav-search {
+          width:100%;
+          padding:7px 14px;
+          background:#111118;
+          border:1px solid #2a2a3a;
+          border-radius:20px;
+          color:#e0e0e0;
+          font-family:'Rajdhani',sans-serif;
+          font-size:0.88rem;
+          outline:none;
+          transition:border-color .2s;
+      }
+      #nav-search:focus { border-color:#f5c842; }
+      #nav-results {
+          position:absolute;
+          top:calc(100% + 6px);
+          left:0; right:0;
+          background:#111118;
+          border:1px solid #2a2a3a;
+          border-radius:12px;
+          overflow:hidden;
+          z-index:999;
+          box-shadow:0 8px 30px rgba(0,0,0,0.5);
+      }
+      .nav-result-item {
+          display:flex;
+          align-items:center;
+          gap:10px;
+          padding:10px 14px;
+          cursor:pointer;
+          transition:background .15s;
+          text-decoration:none;
+          color:#e0e0e0;
+          border-bottom:1px solid #1a1a2e;
+      }
+      .nav-result-item:last-child { border-bottom:none; }
+      .nav-result-item:hover { background:#1a1a2e; }
+      .nav-result-avatar {
+          width:32px; height:32px;
+          border-radius:50%;
+          background:#1a1a2e;
+          border:1px solid #2a2a3a;
+          display:flex; align-items:center; justify-content:center;
+          font-size:1rem; overflow:hidden; flex-shrink:0;
+      }
+      .nav-result-avatar img { width:100%; height:100%; object-fit:cover; }
+      .nav-result-name { font-weight:700; font-size:0.88rem; color:#f5c842; }
+      .nav-result-meta { font-size:0.75rem; color:#555; }
+      .nav-result-empty { padding:12px 14px; color:#555; font-size:0.85rem; text-align:center; }
+      </style>
+
+      <script>
+      let navSearchTimer = null;
+      async function navSearch() {
+          clearTimeout(navSearchTimer);
+          const q   = document.getElementById('nav-search').value.trim();
+          const box = document.getElementById('nav-results');
+          if (q.length < 2) { box.innerHTML = ''; return; }
+          navSearchTimer = setTimeout(async () => {
+              const res  = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
+              const data = await res.json();
+              if (!data.length) {
+                  box.innerHTML = '<div class="nav-result-empty">Nav atrasts</div>';
+                  return;
+              }
+              box.innerHTML = '';
+              data.forEach(u => {
+                  const a = document.createElement('a');
+                  a.className = 'nav-result-item';
+                  a.href = `/u/${u.username}`;
+                  const avatar = u.avatar_path
+                      ? `<img src="/static/uploads/avatars/${u.avatar_path}" onerror="this.parentElement.textContent='👤'">`
+                      : '👤';
+                  a.innerHTML = `
+                      <div class="nav-result-avatar">${avatar}</div>
+                      <div>
+                          <div class="nav-result-name">${u.username}</div>
+                          <div class="nav-result-meta">🎰 ${u.total_games} spēles &nbsp;·&nbsp; 💰 ${u.balance} coins</div>
+                      </div>`;
+                  box.appendChild(a);
+              });
+          }, 250);
+      }
+      </script>
     </nav>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -82,14 +184,15 @@ function showWinCard(game, amount, mult) {
 
 <div id="fc-panel">
   <div id="fc-header">
-    <div style="display:flex;gap:0;">
-      <button class="fc-tab active" id="tab-lobby" onclick="fcSwitchTab('lobby')">🌐 Lobby</button>
-      <button class="fc-tab" id="tab-private" onclick="fcSwitchTab('private')">🔒 Privāts</button>
+    <div style="display:flex;">
+      <button class="fc-tab active" id="tab-lobby"   onclick="fcSwitchTab('lobby')">🌐 Lobby</button>
+      <button class="fc-tab"        id="tab-private" onclick="fcSwitchTab('private')">🔒 Grupas</button>
+      <button class="fc-tab"        id="tab-dm"      onclick="fcSwitchTab('dm')">👤 DM<span id="dm-badge" style="display:none;color:#ff1744;margin-left:3px;">●</span></button>
     </div>
-    <button onclick="toggleFC()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:1.1rem;">✕</button>
+    <button onclick="toggleFC()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:1.1rem;padding:0 8px;">✕</button>
   </div>
 
-  <!-- LOBBY TAB -->
+  <!-- LOBBY -->
   <div id="fc-lobby" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
     <div id="fc-lobby-msgs" class="fc-msgs-box"></div>
     <div class="fc-input-row">
@@ -98,7 +201,7 @@ function showWinCard(game, amount, mult) {
     </div>
   </div>
 
-  <!-- PRIVATE TAB -->
+  <!-- GROUPS -->
   <div id="fc-private" style="display:none;flex:1;overflow:hidden;flex-direction:row;">
     <div id="fc-groups-col">
       <div id="fc-group-list"></div>
@@ -114,9 +217,32 @@ function showWinCard(game, amount, mult) {
         <button onclick="fcPrivSend()">➤</button>
       </div>
     </div>
-    <div id="fc-priv-empty" style="flex:1;display:flex;align-items:center;justify-content:center;color:#333;font-size:0.85rem;">
-      ← Izvēlies grupu
+    <div id="fc-priv-empty" style="flex:1;display:flex;align-items:center;justify-content:center;color:#333;font-size:0.85rem;">← Izvēlies grupu</div>
+  </div>
+
+  <!-- DM -->
+  <div id="fc-dm" style="display:none;flex:1;overflow:hidden;flex-direction:row;">
+    <!-- left: friend list -->
+    <div id="fc-dm-left">
+      <div style="padding:8px;">
+        <input id="fc-search-inp" placeholder="Meklēt lietotāju..." class="fc-small-inp" oninput="fcSearchUsers()">
+        <div id="fc-search-results"></div>
+      </div>
+      <div style="padding:4px 8px;font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:1px;">Draugi</div>
+      <div id="fc-friends-list"></div>
+      <div style="padding:4px 8px;font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Ielūgumi</div>
+      <div id="fc-pending-list"></div>
     </div>
+    <!-- right: conversation -->
+    <div id="fc-dm-chat" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
+      <div id="fc-dm-header" style="padding:8px 10px;border-bottom:1px solid #1a1a2e;font-weight:700;color:#f5c842;font-size:0.85rem;"></div>
+      <div id="fc-dm-msgs" class="fc-msgs-box"></div>
+      <div class="fc-input-row">
+        <input id="fc-dm-inp" placeholder="Raksti..." onkeydown="if(event.key==='Enter')fcDmSend()">
+        <button onclick="fcDmSend()">➤</button>
+      </div>
+    </div>
+    <div id="fc-dm-empty" style="flex:1;display:flex;align-items:center;justify-content:center;color:#333;font-size:0.85rem;text-align:center;padding:10px;">← Izvēlies draugu vai meklē lietotāju</div>
   </div>
 </div>
 
@@ -133,26 +259,25 @@ function showWinCard(game, amount, mult) {
 #fc-btn:hover{transform:scale(1.08);}
 #fc-panel {
   position:fixed;bottom:88px;right:24px;z-index:901;
-  width:400px;height:440px;
+  width:420px;height:460px;
   background:#0f0f1a;border:1px solid #2a2a3a;border-radius:16px;
   box-shadow:0 8px 40px rgba(0,0,0,0.6);
   display:none;flex-direction:column;overflow:hidden;
   font-family:'Rajdhani',sans-serif;
 }
 #fc-panel.open{display:flex;}
-#fc-header {
+#fc-header{
   display:flex;justify-content:space-between;align-items:center;
   background:#111118;border-bottom:1px solid #1a1a2e;
-  padding:0 10px 0 0;
 }
-.fc-tab {
-  padding:10px 16px;background:none;border:none;
+.fc-tab{
+  padding:10px 14px;background:none;border:none;
   color:#666;cursor:pointer;font-family:'Rajdhani',sans-serif;
-  font-size:0.85rem;font-weight:700;border-bottom:2px solid transparent;
-  transition:all .15s;
+  font-size:0.82rem;font-weight:700;
+  border-bottom:2px solid transparent;transition:all .15s;
 }
 .fc-tab.active{color:#f5c842;border-bottom-color:#f5c842;}
-.fc-msgs-box {
+.fc-msgs-box{
   flex:1;overflow-y:auto;padding:10px;
   display:flex;flex-direction:column;gap:5px;
 }
@@ -171,7 +296,7 @@ function showWinCard(game, amount, mult) {
 .fc-input-row input:focus{outline:none;border-color:#f5c842;}
 .fc-input-row button{
   padding:7px 12px;background:#f5c842;border:none;
-  border-radius:8px;cursor:pointer;font-weight:700;
+  border-radius:8px;cursor:pointer;font-weight:700;font-size:1rem;
 }
 #fc-groups-col{
   width:140px;border-right:1px solid #1a1a2e;
@@ -190,12 +315,58 @@ function showWinCard(game, amount, mult) {
   width:100%;padding:6px 8px;background:#0a0a14;
   border:1px solid #333;border-radius:6px;color:#fff;
   font-size:0.78rem;font-family:'Rajdhani',sans-serif;
+  box-sizing:border-box;
 }
+.fc-small-inp:focus{outline:none;border-color:#f5c842;}
 .fc-small-btn{
   width:100%;margin-top:5px;padding:6px;
   background:linear-gradient(135deg,#f5c842,#e6a800);
   border:none;border-radius:6px;font-weight:700;
   cursor:pointer;font-size:0.78rem;
+}
+/* DM left panel */
+#fc-dm-left{
+  width:150px;border-right:1px solid #1a1a2e;
+  display:flex;flex-direction:column;overflow-y:auto;
+}
+.fc-friend-item{
+  padding:7px 10px;cursor:pointer;font-size:0.8rem;
+  color:#aaa;display:flex;justify-content:space-between;
+  align-items:center;transition:background .15s;
+  border-bottom:1px solid #0a0a14;
+}
+.fc-friend-item:hover{background:#1a1a2e;color:#fff;}
+.fc-friend-item.active{background:#1a1a2e;color:#f5c842;}
+.fc-unread-dot{
+  width:8px;height:8px;border-radius:50%;
+  background:#ff1744;flex-shrink:0;
+}
+.fc-search-result{
+  padding:6px 8px;cursor:pointer;font-size:0.78rem;
+  color:#888;border-radius:6px;margin-top:3px;
+  background:#0a0a14;display:flex;justify-content:space-between;
+  align-items:center;
+}
+.fc-search-result:hover{background:#1a1a2e;color:#fff;}
+.fc-add-btn{
+  font-size:0.7rem;padding:2px 6px;background:#1a3a1a;
+  border:1px solid #00e676;color:#00e676;border-radius:4px;
+  cursor:pointer;white-space:nowrap;
+}
+.fc-pending-item{
+  padding:6px 10px;font-size:0.78rem;color:#aaa;
+  border-bottom:1px solid #0a0a14;
+}
+.fc-pending-item .fc-pname{color:#fff;font-weight:600;}
+.fc-accept-btn{
+  font-size:0.68rem;padding:2px 6px;background:#1a3a1a;
+  border:1px solid #00e676;color:#00e676;border-radius:4px;
+  cursor:pointer;margin-right:3px;
+}
+.fc-reject-btn{
+  font-size:0.68rem;padding:2px 6px;background:#1a0a0a;
+  border:1px solid #ff1744;color:#ff1744;border-radius:4px;
+  cursor:pointer;
 }
 @media(max-width:600px){
   #fc-panel{width:calc(100vw - 20px);right:10px;bottom:80px;}
@@ -204,37 +375,47 @@ function showWinCard(game, amount, mult) {
 
 <script>
 const FC_LOBBY_ID = 1;
-let fcOpen       = false;
-let fcTab        = 'lobby';
-let fcGroupId    = null;
-let fcMyName     = "{{ session.user_name }}";
-let fcLobbyPoll  = null;
-let fcPrivPoll   = null;
-let fcLobbyLast  = 0;
+let fcOpen      = false;
+let fcTab       = 'lobby';
+let fcGroupId   = null;
+let fcDmUserId  = null;
+let fcMyName    = "{{ session.user_name }}";
+let fcMyId      = {{ session.user_id }};
+let fcLobbyPoll = null;
+let fcPrivPoll  = null;
+let fcDmPoll    = null;
+let fcUnreadPoll= null;
+let fcLobbyLast = 0;
+let fcSearchTimer = null;
 
 function toggleFC() {
   fcOpen = !fcOpen;
   document.getElementById('fc-panel').classList.toggle('open', fcOpen);
   if (fcOpen) {
     document.getElementById('fc-badge').style.display = 'none';
-    if (fcTab === 'lobby') fcStartLobby();
-    else fcLoadGroups();
+    if (fcTab === 'lobby')   fcStartLobby();
+    if (fcTab === 'private') fcLoadGroups();
+    if (fcTab === 'dm')      fcLoadFriends();
   } else {
     clearInterval(fcLobbyPoll);
     clearInterval(fcPrivPoll);
+    clearInterval(fcDmPoll);
   }
 }
 
 function fcSwitchTab(tab) {
   fcTab = tab;
-  document.getElementById('tab-lobby').classList.toggle('active', tab === 'lobby');
-  document.getElementById('tab-private').classList.toggle('active', tab === 'private');
-  document.getElementById('fc-lobby').style.display   = tab === 'lobby'   ? 'flex' : 'none';
-  document.getElementById('fc-private').style.display = tab === 'private' ? 'flex' : 'none';
+  ['lobby','private','dm'].forEach(t => {
+    document.getElementById('tab-'+t).classList.toggle('active', t === tab);
+    const el = document.getElementById('fc-'+t);
+    el.style.display = t === tab ? 'flex' : 'none';
+  });
   clearInterval(fcLobbyPoll);
   clearInterval(fcPrivPoll);
+  clearInterval(fcDmPoll);
   if (tab === 'lobby')   fcStartLobby();
   if (tab === 'private') fcLoadGroups();
+  if (tab === 'dm')      fcLoadFriends();
 }
 
 // ── LOBBY ──
@@ -242,7 +423,6 @@ function fcStartLobby() {
   fcLoadLobby();
   fcLobbyPoll = setInterval(fcLoadLobby, 2500);
 }
-
 async function fcLoadLobby() {
   const res  = await fetch(`/api/chat/group/${FC_LOBBY_ID}/messages`);
   const msgs = await res.json();
@@ -252,12 +432,11 @@ async function fcLoadLobby() {
     document.getElementById('fc-badge').style.display = 'inline';
   }
   fcLobbyLast = msgs.length;
-  fcRenderMsgs(box, msgs);
+  fcRenderMsgs(box, msgs, 'username');
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
-
 async function fcLobbySend() {
-  const inp  = document.getElementById('fc-lobby-inp');
+  const inp = document.getElementById('fc-lobby-inp');
   const text = inp.value.trim();
   if (!text) return;
   inp.value = '';
@@ -268,14 +447,14 @@ async function fcLobbySend() {
   fcLoadLobby();
 }
 
-// ── PRIVATE ──
+// ── GROUPS ──
 async function fcLoadGroups() {
   const res  = await fetch('/api/chat/groups');
   const data = await res.json();
   const list = document.getElementById('fc-group-list');
   list.innerHTML = '';
   data.forEach(g => {
-    if (g.id === FC_LOBBY_ID) return; // skip lobby in private list
+    if (g.id === FC_LOBBY_ID) return;
     const d = document.createElement('div');
     d.className = 'fc-group-item' + (g.id === fcGroupId ? ' active' : '');
     d.textContent = g.name;
@@ -283,7 +462,6 @@ async function fcLoadGroups() {
     list.appendChild(d);
   });
 }
-
 function fcOpenPrivGroup(id, name) {
   fcGroupId = id;
   document.getElementById('fc-priv-chat').style.display  = 'flex';
@@ -295,19 +473,17 @@ function fcOpenPrivGroup(id, name) {
   fcLoadPriv();
   fcPrivPoll = setInterval(fcLoadPriv, 2500);
 }
-
 async function fcLoadPriv() {
   if (!fcGroupId) return;
   const res  = await fetch(`/api/chat/group/${fcGroupId}/messages`);
   const msgs = await res.json();
   const box  = document.getElementById('fc-priv-msgs');
   const atBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 15;
-  fcRenderMsgs(box, msgs);
+  fcRenderMsgs(box, msgs, 'username');
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
-
 async function fcPrivSend() {
-  const inp  = document.getElementById('fc-priv-inp');
+  const inp = document.getElementById('fc-priv-inp');
   const text = inp.value.trim();
   if (!text || !fcGroupId) return;
   inp.value = '';
@@ -317,9 +493,8 @@ async function fcPrivSend() {
   });
   fcLoadPriv();
 }
-
 async function fcCreateGroup() {
-  const inp  = document.getElementById('fc-new-group');
+  const inp = document.getElementById('fc-new-group');
   const name = inp.value.trim();
   if (!name) return;
   inp.value = '';
@@ -330,21 +505,143 @@ async function fcCreateGroup() {
   fcLoadGroups();
 }
 
+// ── DM ──
+async function fcLoadFriends() {
+  const res  = await fetch('/api/friends/list');
+  const data = await res.json();
+  const unread = await (await fetch('/api/dm/unread')).json();
+
+  const flist = document.getElementById('fc-friends-list');
+  flist.innerHTML = '';
+  data.friends.forEach(f => {
+    const d = document.createElement('div');
+    d.className = 'fc-friend-item' + (f.id === fcDmUserId ? ' active' : '');
+    const hasUnread = unread[String(f.id)] > 0;
+    d.innerHTML = `<span>${f.username}</span>${hasUnread ? '<div class="fc-unread-dot"></div>' : ''}`;
+    d.onclick = () => fcOpenDm(f.id, f.username);
+    flist.appendChild(d);
+  });
+
+  const plist = document.getElementById('fc-pending-list');
+  plist.innerHTML = '';
+  data.pending.forEach(p => {
+    const d = document.createElement('div');
+    d.className = 'fc-pending-item';
+    d.innerHTML = `
+      <div class="fc-pname">${p.username}</div>
+      <div style="margin-top:4px;">
+        <button class="fc-accept-btn" onclick="fcRespond(${p.id},'accept')">✓</button>
+        <button class="fc-reject-btn" onclick="fcRespond(${p.id},'reject')">✕</button>
+      </div>`;
+    plist.appendChild(d);
+  });
+
+  // update dm badge
+  const totalUnread = Object.values(unread).reduce((a,b) => a + b, 0);
+  document.getElementById('dm-badge').style.display = totalUnread > 0 ? 'inline' : 'none';
+}
+
+function fcOpenDm(uid, username) {
+  fcDmUserId = uid;
+  document.getElementById('fc-dm-chat').style.display  = 'flex';
+  document.getElementById('fc-dm-empty').style.display = 'none';
+  document.getElementById('fc-dm-header').textContent  = '💬 ' + username;
+  document.querySelectorAll('.fc-friend-item').forEach(el =>
+    el.classList.toggle('active', el.querySelector('span').textContent === username)
+  );
+  clearInterval(fcDmPoll);
+  fcLoadDm();
+  fcDmPoll = setInterval(fcLoadDm, 2500);
+}
+
+async function fcLoadDm() {
+  if (!fcDmUserId) return;
+  const res  = await fetch(`/api/dm/${fcDmUserId}`);
+  if (!res.ok) return;
+  const msgs = await res.json();
+  const box  = document.getElementById('fc-dm-msgs');
+  const atBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 15;
+  fcRenderMsgs(box, msgs, 'sender_name');
+  if (atBottom) box.scrollTop = box.scrollHeight;
+  // refresh unread dots
+  fcLoadFriends();
+}
+
+async function fcDmSend() {
+  const inp = document.getElementById('fc-dm-inp');
+  const text = inp.value.trim();
+  if (!text || !fcDmUserId) return;
+  inp.value = '';
+  await fetch(`/api/dm/${fcDmUserId}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({message: text})
+  });
+  fcLoadDm();
+}
+
+async function fcSearchUsers() {
+  clearTimeout(fcSearchTimer);
+  const q = document.getElementById('fc-search-inp').value.trim();
+  if (q.length < 2) {
+    document.getElementById('fc-search-results').innerHTML = '';
+    return;
+  }
+  fcSearchTimer = setTimeout(async () => {
+    const res  = await fetch(`/api/friends/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    const box  = document.getElementById('fc-search-results');
+    box.innerHTML = '';
+    data.forEach(u => {
+      const d = document.createElement('div');
+      d.className = 'fc-search-result';
+      d.innerHTML = `<span>${u.username}</span><button class="fc-add-btn" onclick="fcAddFriend(${u.id}, this)">+ Draugs</button>`;
+      box.appendChild(d);
+    });
+  }, 300);
+}
+
+async function fcAddFriend(uid, btn) {
+  btn.disabled = true;
+  btn.textContent = '...';
+  const res  = await fetch('/api/friends/request', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({user_id: uid})
+  });
+  const data = await res.json();
+  btn.textContent = data.ok ? '✓ Nosūtīts' : '✕';
+}
+
+async function fcRespond(uid, action) {
+  await fetch('/api/friends/respond', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({user_id: uid, action})
+  });
+  fcLoadFriends();
+}
+
 // ── SHARED ──
-function fcRenderMsgs(box, msgs) {
-  const prev = box.scrollTop;
+function fcRenderMsgs(box, msgs, authorKey) {
+  const atBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 15;
   box.innerHTML = '';
   msgs.forEach(m => {
     const d = document.createElement('div');
-    d.className = 'fc-msg' + (m.username === fcMyName ? ' mine' : '');
-    d.innerHTML = `<span class="fc-author">${m.username}</span>${m.message}`;
+    const author = m[authorKey] || m.username || '?';
+    d.className = 'fc-msg' + (author === fcMyName ? ' mine' : '');
+    d.innerHTML = `<span class="fc-author">${author}</span>${m.message}`;
     box.appendChild(d);
   });
+  if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
-// Auto-start lobby poll when page loads
+// background unread check
 document.addEventListener('DOMContentLoaded', () => {
-  fcLobbyPoll = setInterval(fcLoadLobby, 5000);
+  fcLobbyPoll  = setInterval(fcLoadLobby, 5000);
+  fcUnreadPoll = setInterval(async () => {
+    const unread = await (await fetch('/api/dm/unread')).json();
+    const total  = Object.values(unread).reduce((a,b) => a + b, 0);
+    document.getElementById('dm-badge').style.display   = total > 0 ? 'inline' : 'none';
+    document.getElementById('fc-badge').style.display   = total > 0 ? 'inline' : 'none';
+  }, 8000);
 });
 </script>
 {% endif %}

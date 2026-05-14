@@ -1314,6 +1314,34 @@ def api_friends_list():
         'pending': [dict(p) for p in pending]
     })
 
+@app.route('/api/users/search')
+@login_required
+def api_users_search():
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT u.id, u.username,
+               COALESCE(w.balance, 0)  AS balance,
+               COALESCE(p.avatar_path, '') AS avatar_path,
+               COALESCE(p.title, '')   AS title,
+               COUNT(ct.id)            AS total_games
+        FROM users u
+        LEFT JOIN wallets w             ON w.user_id  = u.id
+        LEFT JOIN profiles p            ON p.user_id  = u.id
+        LEFT JOIN casino_transactions ct ON ct.user_id = u.id
+        WHERE u.username ILIKE %s
+        GROUP BY u.id, w.balance, p.avatar_path, p.title
+        ORDER BY u.username
+        LIMIT 8
+    """, (f'%{q}%',))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
 
 @app.route('/api/dm/<int:other_id>', methods=['GET'])
 @login_required

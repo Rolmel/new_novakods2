@@ -276,6 +276,59 @@
         </div>
     </div>
 
+    {% if not is_own_profile and session.user_id %}
+        <div id="friend-btn-wrap" style="margin-top:12px;">
+        <button id="friend-btn" onclick="toggleFriend()" class="profile-friend-btn">
+            ➕ Pievienot draugiem
+        </button>
+        </div>
+        <style>
+        .profile-friend-btn {
+        padding:8px 20px;
+        border:none; border-radius:10px;
+        font-family:'Rajdhani',sans-serif;
+        font-size:0.95rem; font-weight:700;
+        cursor:pointer; transition:all .15s;
+        background:linear-gradient(135deg,#f5c842,#e6a800);
+        color:#000;
+        }
+        .profile-friend-btn.pending  { background:#1a1a2e; border:1px solid #555;   color:#888; cursor:default; }
+        .profile-friend-btn.friends  { background:#1a3a1a; border:1px solid #00e676; color:#00e676; cursor:default; }
+        </style>
+        <script>
+        async function checkFriendStatus() {
+            const res  = await fetch('/api/friends/list');
+            const data = await res.json();
+            const btn  = document.getElementById('friend-btn');
+            const uid  = {{ owner.id }};
+            if (data.friends.find(f => f.id === uid)) {
+                btn.textContent = '✅ Draugi';
+                btn.className   = 'profile-friend-btn friends';
+            } else if (data.pending.find(f => f.id === uid)) {
+                btn.textContent = '⏳ Ielūgums nosūtīts';
+                btn.className   = 'profile-friend-btn pending';
+            }
+        }
+        async function toggleFriend() {
+            const btn = document.getElementById('friend-btn');
+            if (btn.classList.contains('friends') || btn.classList.contains('pending')) return;
+            btn.disabled    = true;
+            btn.textContent = '...';
+            const res  = await fetch('/api/friends/request', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({user_id: {{ owner.id }} })
+            });
+            const data = await res.json();
+            if (data.ok) {
+                btn.textContent = '⏳ Ielūgums nosūtīts';
+                btn.className   = 'profile-friend-btn pending';
+            }
+            btn.disabled = false;
+        }
+        checkFriendStatus();
+        </script>
+    {% endif %}
+
     {% if profile.equipped_skin_name %}
     <div class="stat-row">
     <span class="stat-label">Aktīvais izskats</span>
