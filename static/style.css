@@ -18,6 +18,14 @@
 .cooldown-bar-fill { background: var(--grad-glow); border-radius: 4px; height: 6px; width: 100%; transition: width linear; }
 .divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
 
+body {
+    font-family: 'Rajdhani', 'Inter', sans-serif;
+    font-size: 1rem;
+    line-height: 1.5;
+    background: #0a0a0f;
+    color: #e0e0e0;
+}
+
 :root {
     /* Foni — kosmosa dziļums */
     --bg-main:       #07080f;

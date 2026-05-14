@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}NovaKods{% endblock %}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;600;700&family=Rajdhani:wght@400;600;700&family=Cinzel+Decorative:wght@700&display=swap" rel="stylesheet">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;600;700&family=Rajdhani:wght@400;600;700&family=Cinzel+Decorative:wght@700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 {% if card_skin_css %}
 <style>{{ card_skin_css | safe }}</style>
@@ -15,27 +15,38 @@
 
 <body>
 <div class="container">
-    <nav>
-<nav>
-          <a href="/">NovaKods Portal</a>
+  <nav style="display:flex; align-items:center; gap:16px; padding:12px 24px; background:#0a0a0f; border-bottom:1px solid #2a2a3a; position:sticky; top:0; z-index:500;">
 
-          <div id="nav-search-wrap">
-              <input id="nav-search" placeholder="🔍 Meklēt spēlētāju..." 
-                    oninput="navSearch()" onblur="setTimeout(()=>document.getElementById('nav-results').innerHTML='',200)"
-                    autocomplete="off">
-              <div id="nav-results"></div>
-          </div>
+    <a href="/" style="font-family:'Cinzel Decorative',serif; color:#f5c842; font-size:1rem; text-decoration:none; white-space:nowrap; flex-shrink:0;">NovaKods</a>
 
-          {% if session.user_id %}
-          <span>
-              Sveiks, <a href="/profile"><strong>{{ session.user_name }}</strong></a>! | <a href="/logout">Iziet</a>
-          </span>
-          {% else %}
-          <span>
-              <a href="/login">Ienākt</a> | <a href="/register">Reģistrēties</a>
-          </span>
-          {% endif %}
-      </nav>
+    <div id="nav-search-wrap" style="position:relative; flex:1; max-width:340px;">
+      <input id="nav-search"
+        placeholder="🔍 Meklēt spēlētāju..."
+        oninput="navSearch()"
+        onblur="setTimeout(()=>document.getElementById('nav-results').innerHTML='', 200)"
+        autocomplete="off"
+        style="width:100%; padding:9px 16px; background:#111118; border:1px solid #2a2a3a;
+              border-radius:20px; color:#e0e0e0; font-family:'Rajdhani',sans-serif;
+              font-size:0.92rem; outline:none; box-sizing:border-box;">
+      <div id="nav-results" style="position:fixed; background:#111118; border:1px solid #2a2a3a;
+         border-radius:12px; overflow:hidden; z-index:9999;
+         box-shadow:0 8px 30px rgba(0,0,0,0.7);"></div>
+    </div>
+
+    <div style="margin-left:auto; display:flex; align-items:center; gap:16px; white-space:nowrap; font-family:'Rajdhani',sans-serif; font-size:1rem;">
+      {% if session.user_id %}
+        <a href="/casino" style="color:#f5c842; text-decoration:none;">🎰 Casino</a>
+        <a href="/predictions" style="color:#e0e0e0; text-decoration:none;">📈 Prognozes</a>
+        <a href="/clubs" style="color:#e0e0e0; text-decoration:none;">🏛️ Klubi</a>
+        <a href="/duels" style="color:#e0e0e0; text-decoration:none;">⚔️ Dueļi</a>
+        <a href="/profile" style="color:#e0e0e0; text-decoration:none; font-weight:600;">{{ session.user_name }}</a>
+        <a href="/logout" style="color:#888; text-decoration:none;">Iziet</a>
+      {% else %}
+        <a href="/login" style="color:#f5c842; text-decoration:none;">Ienākt</a>
+        <a href="/register" style="color:#e0e0e0; text-decoration:none;">Reģistrēties</a>
+      {% endif %}
+    </div>
+  </nav>
 
       <style>
       #nav-search-wrap {
@@ -95,39 +106,41 @@
       .nav-result-empty { padding:12px 14px; color:#555; font-size:0.85rem; text-align:center; }
       </style>
 
-      <script>
-      let navSearchTimer = null;
-      async function navSearch() {
-          clearTimeout(navSearchTimer);
-          const q   = document.getElementById('nav-search').value.trim();
-          const box = document.getElementById('nav-results');
-          if (q.length < 2) { box.innerHTML = ''; return; }
-          navSearchTimer = setTimeout(async () => {
-              const res  = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
-              const data = await res.json();
-              if (!data.length) {
-                  box.innerHTML = '<div class="nav-result-empty">Nav atrasts</div>';
-                  return;
-              }
-              box.innerHTML = '';
-              data.forEach(u => {
-                  const a = document.createElement('a');
-                  a.className = 'nav-result-item';
-                  a.href = `/u/${u.username}`;
-                  const avatar = u.avatar_path
-                      ? `<img src="/static/uploads/avatars/${u.avatar_path}" onerror="this.parentElement.textContent='👤'">`
-                      : '👤';
-                  a.innerHTML = `
-                      <div class="nav-result-avatar">${avatar}</div>
-                      <div>
-                          <div class="nav-result-name">${u.username}</div>
-                          <div class="nav-result-meta">🎰 ${u.total_games} spēles &nbsp;·&nbsp; 💰 ${u.balance} coins</div>
-                      </div>`;
-                  box.appendChild(a);
-              });
-          }, 250);
-      }
-      </script>
+<script>
+let navSearchTimer = null;
+async function navSearch() {
+  clearTimeout(navSearchTimer);
+  const q   = document.getElementById('nav-search').value.trim();
+  const box = document.getElementById('nav-results');
+  if (q.length < 2) { box.innerHTML = ''; return; }
+  navSearchTimer = setTimeout(async () => {
+    const rect = document.getElementById('nav-search').getBoundingClientRect();
+    box.style.top   = (rect.bottom + 6) + 'px';
+    box.style.left  = rect.left + 'px';
+    box.style.width = rect.width + 'px';
+
+    const res  = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (!data.length) {
+      box.innerHTML = '<div style="padding:12px 14px;color:#555;font-size:0.85rem;text-align:center;">Nav atrasts</div>';
+      return;
+    }
+    box.innerHTML = '';
+    data.forEach(u => {
+      const a = document.createElement('a');
+      a.href = `/u/${u.username}`;
+      a.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;text-decoration:none;color:#e0e0e0;border-bottom:1px solid #1a1a2e;';
+      a.onmouseover = () => a.style.background = '#1a1a2e';
+      a.onmouseout  = () => a.style.background = '';
+      const avatar = u.avatar_path
+        ? `<img src="/static/uploads/avatars/${u.avatar_path}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;">`
+        : '<div style="width:32px;height:32px;border-radius:50%;background:#1a1a2e;display:flex;align-items:center;justify-content:center;">👤</div>';
+      a.innerHTML = `${avatar}<div><div style="font-weight:700;font-size:0.88rem;color:#f5c842;">${u.username}</div><div style="font-size:0.75rem;color:#555;">🎰 ${u.total_games} spēles · 💰 ${u.balance} coins</div></div>`;
+      box.appendChild(a);
+    });
+  }, 250);
+}
+</script>
     </nav>
     {% if session.user_id %}
       <div id="notif-wrap" style="position:relative;cursor:pointer" onclick="toggleNotifPanel()">

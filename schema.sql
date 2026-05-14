@@ -3,6 +3,24 @@
 --  Run once:  psql -U rolmel -d novakods -f /var/www/html/novakods/schema.sql
 -- ============================================================
 
+CREATE TABLE IF NOT EXISTS prediction_comments (
+    id          BIGSERIAL PRIMARY KEY,
+    event_id    INTEGER NOT NULL REFERENCES prediction_events(id) ON DELETE CASCADE,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body        VARCHAR(500) NOT NULL,
+    likes       INTEGER NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS prediction_comment_likes (
+    comment_id  BIGINT  NOT NULL REFERENCES prediction_comments(id) ON DELETE CASCADE,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (comment_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS pred_comments_event ON prediction_comments(event_id, created_at DESC);
+
+
 ALTER TABLE prediction_events
     ADD COLUMN IF NOT EXISTS min_tier TEXT NOT NULL DEFAULT 'unranked',
     ADD COLUMN IF NOT EXISTS creator_tier TEXT;

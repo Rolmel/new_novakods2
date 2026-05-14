@@ -267,10 +267,269 @@ def logout():
 
 
 
+@app.route('/predictions/league')
+@login_required
+def predictions_league():
+    from datetime import date, timedelta
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    today   = date.today()
+    week_start = today - timedelta(days=today.weekday())
+    week_end   = week_start + timedelta(days=6)
+
+    cur.execute("""
+        SELECT u.id AS user_id, u.username,
+               COALESCE(pf.display_name, u.username) AS display_name,
+               COUNT(pr.id)                           AS total_bets,
+               SUM(CASE WHEN pr.payout > 0 THEN 1 ELSE 0 END) AS wins,
+               COALESCE(SUM(pr.payout), 0) - COALESCE(SUM(pr.stake), 0) AS profit,
+               COALESCE(pt.tier, 'unranked') AS tier
+        FROM predictions pr
+        JOIN prediction_events pe ON pe.id = pr.event_id AND pe.status = 'resolved'
+        JOIN users u ON u.id = pr.user_id
+        LEFT JOIN profiles pf ON pf.user_id = pr.user_id
+        LEFT JOIN predictor_tiers pt ON pt.user_id = pr.user_id
+        WHERE pr.created_at >= %s
+          AND pr.payout IS NOT NULL
+        GROUP BY u.id, u.username, pf.display_name, pt.tier
+        ORDER BY profit DESC
+        LIMIT 50
+    """, (week_start,))
+    current_week = [dict(r) for r in cur.fetchall()]
+    for i, row in enumerate(current_week):
+        row['rank'] = i + 1
+
+    my_rank = next((r for r in current_week if r['user_id'] == session['user_id']), None)
+
+    cur.execute("""
+        SELECT lb.week_start, lb.user_id, lb.wins, lb.profit,
+               u.username,
+               RANK() OVER (PARTITION BY lb.week_start ORDER BY lb.profit DESC) AS place
+        FROM prediction_weekly_lb lb
+        JOIN users u ON u.id = lb.user_id
+        WHERE lb.week_start < %s
+        ORDER BY lb.week_start DESC, lb.profit DESC
+    """, (week_start,))
+    past_rows = [dict(r) for r in cur.fetchall()]
+
+    past_weeks = {}
+    for r in past_rows:
+        ws = str(r['week_start'])
+        if ws not in past_weeks:
+            past_weeks[ws] = []
+        if len(past_weeks[ws]) < 5:
+            past_weeks[ws].append(r)
+
+    balance = get_or_create_balance(conn, session['user_id'])
+    cur.close()
+    conn.close()
+    return render_template('predictions_league.html',
+                           current_week=current_week,
+                           my_rank=my_rank,
+                           week_start=week_start,
+                           week_end=week_end,
+                           past_weeks=past_weeks,
+                           balance=balance,
+                           prizes=[1000, 500, 250])
 
 
+@app.route('/api/predictions/<int:event_id>/comments')
+@login_required
+def api_prediction_comments(event_id):
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT pc.id, pc.body, pc.likes, pc.created_at,
+               u.username,
+               COALESCE(pf.display_name, u.username) AS display_name,
+               COALESCE(pf.avatar_path, '')           AS avatar_path,
+               COALESCE(pt.tier, 'unranked')          AS tier,
+               EXISTS(
+                   SELECT 1 FROM prediction_comment_likes
+                   WHERE comment_id = pc.id AND user_id = %s
+               ) AS liked_by_me
+        FROM prediction_comments pc
+        JOIN users u             ON u.id  = pc.user_id
+        LEFT JOIN profiles pf    ON pf.user_id = pc.user_id
+        LEFT JOIN predictor_tiers pt ON pt.user_id = pc.user_id
+        WHERE pc.event_id = %s
+        ORDER BY pc.likes DESC, pc.created_at DESC
+        LIMIT 50
+    """, (user_id, event_id))
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return jsonify(rows)
 
 
+@app.route('/api/predictions/<int:event_id>/comments', methods=['POST'])
+@login_required
+def api_prediction_comment_post(event_id):
+    user_id = session['user_id']
+    body    = (request.json or {}).get('body', '').strip()
+    if not body or len(body) > 500:
+        return jsonify({'ok': False, 'error': 'Komentāram jābūt 1–500 simboli'}), 400
+
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT status FROM prediction_events WHERE id = %s", (event_id,))
+    event = cur.fetchone()
+    if not event:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav atrasts'}), 404
+
+    cur2 = conn.cursor()
+    cur2.execute("""
+        INSERT INTO prediction_comments (event_id, user_id, body)
+        VALUES (%s, %s, %s) RETURNING id
+    """, (event_id, user_id, sanitize_message(body)))
+    comment_id = cur2.fetchone()[0]
+    conn.commit()
+    cur.close()
+    cur2.close()
+    conn.close()
+
+    socketio.emit('prediction_comment', {
+        'event_id':     event_id,
+        'comment_id':   comment_id,
+        'username':     session['user_name'],
+        'body':         sanitize_message(body),
+    }, room=f'prediction_{event_id}')
+
+    return jsonify({'ok': True, 'comment_id': comment_id})
+
+@app.route('/api/predictions/comments/<int:comment_id>/like', methods=['POST'])
+@login_required
+def api_prediction_comment_like(comment_id):
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT user_id FROM prediction_comments WHERE id = %s", (comment_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav atrasts'}), 404
+    if row['user_id'] == user_id:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nevari like savu komentāru'}), 400
+
+    cur2 = conn.cursor()
+    try:
+        cur2.execute("""
+            INSERT INTO prediction_comment_likes (comment_id, user_id)
+            VALUES (%s, %s)
+        """, (comment_id, user_id))
+        cur2.execute("""
+            UPDATE prediction_comments SET likes = likes + 1 WHERE id = %s
+            RETURNING likes
+        """, (comment_id,))
+        new_likes = cur2.fetchone()[0]
+        conn.commit()
+        liked = True
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        cur2.execute("""
+            DELETE FROM prediction_comment_likes
+            WHERE comment_id = %s AND user_id = %s
+        """, (comment_id, user_id))
+        cur2.execute("""
+            UPDATE prediction_comments SET likes = GREATEST(0, likes - 1) WHERE id = %s
+            RETURNING likes
+        """, (comment_id,))
+        new_likes = cur2.fetchone()[0]
+        conn.commit()
+        liked = False
+
+    cur.close()
+    cur2.close()
+    conn.close()
+    return jsonify({'ok': True, 'likes': new_likes, 'liked': liked})
+
+@app.route('/duels')
+@login_required
+def duels_page():
+    conn    = get_db_connection()
+    balance = get_or_create_balance(conn, session['user_id'])
+    conn.close()
+    return render_template('duels.html', balance=balance)
+
+
+@app.route('/api/predictions/options/<int:event_id>')
+@login_required
+def api_prediction_options(event_id):
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT po.id, po.label,
+               COALESCE(pv.total_stake, 0)  AS volume,
+               COALESCE(pv.backer_count, 0) AS backers
+        FROM prediction_options po
+        LEFT JOIN prediction_volume pv ON pv.option_id = po.id
+        WHERE po.event_id = %s ORDER BY po.id
+    """, (event_id,))
+    options = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return jsonify({'options': options})
+
+
+def _update_weekly_lb(conn, event_id: int, winning_option_id: int):
+    from datetime import date, timedelta
+    week_start = date.today() - timedelta(days=date.today().weekday())
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT user_id, stake, payout, (option_id = %s) AS won
+        FROM predictions WHERE event_id = %s AND payout IS NOT NULL
+    """, (winning_option_id, event_id))
+    bets = cur.fetchall()
+    cur2 = conn.cursor()
+    for b in bets:
+        profit = int(b['payout'] - b['stake']) if b['won'] else -int(b['stake'])
+        cur2.execute("""
+            INSERT INTO prediction_weekly_lb (week_start, user_id, wins, profit, roi_pct)
+            VALUES (%s, %s, %s, %s, 0)
+            ON CONFLICT (week_start, user_id) DO UPDATE SET
+                wins   = prediction_weekly_lb.wins + %s,
+                profit = prediction_weekly_lb.profit + %s
+        """, (week_start, b['user_id'],
+              1 if b['won'] else 0, profit,
+              1 if b['won'] else 0, profit))
+    conn.commit()
+    cur.close()
+    cur2.close()
+
+def _award_weekly_prizes(conn, week_start):
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT lb.user_id, lb.profit, u.username
+        FROM prediction_weekly_lb lb
+        JOIN users u ON u.id = lb.user_id
+        WHERE lb.week_start = %s AND lb.wins > 0
+        ORDER BY lb.profit DESC LIMIT 3
+    """, (week_start,))
+    top = cur.fetchall()
+    prizes = [1000, 500, 250]
+    labels = ['🥇 1.', '🥈 2.', '🥉 3.']
+    cur2 = conn.cursor()
+    for i, row in enumerate(top):
+        if i >= len(prizes):
+            break
+        amount = prizes[i]
+        uid    = row['user_id']
+        bal    = get_or_create_balance(conn, uid) + amount
+        cur2.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (bal, uid))
+        cur2.execute("""
+            INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+            VALUES (%s, %s, 'weekly_league_prize', %s, %s)
+        """, (uid, amount, str(week_start), bal))
+        cur2.execute("""
+            INSERT INTO notifications (user_id, message)
+            VALUES (%s, %s)
+        """, (uid, f'{labels[i]} vieta nedēļas prognozēs! +{amount} coins!'))
+    conn.commit()
+    cur.close()
+    cur2.close()
 
 @app.route('/api/achievements/<int:user_id>')
 @login_required
@@ -884,6 +1143,26 @@ def _start_tournament_scheduler():
         while True:
             socketio.sleep(30)
             try:
+
+                from datetime import date, timedelta
+                today_d = date.today()
+                if today_d.weekday() == 0:
+                    last_week = today_d - timedelta(days=7)
+                    cur_chk = conn.cursor()
+                    cur_chk.execute("""
+                        SELECT 1 FROM wallet_log
+                        WHERE reason = 'weekly_league_prize'
+                        AND created_at >= NOW() - INTERVAL '8 days'
+                        AND created_at < NOW() - INTERVAL '1 day'
+                        LIMIT 1
+                    """)
+                    if not cur_chk.fetchone():
+                        try:
+                            _award_weekly_prizes(conn, last_week)
+                            app.logger.info(f'[weekly_league] prizes awarded for {last_week}')
+                        except Exception as e:
+                            app.logger.error(f'[weekly_league] award error: {e}')
+                    cur_chk.close()
                 conn = get_db_connection()
                 cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -3689,7 +3968,7 @@ def api_prediction_resolve(event_id):
     """, (winning_option['label'], event_id))
 
     conn.commit()
-
+    _update_weekly_lb(conn, event_id, winning_option_id)
     _update_prediction_stats(conn, event_id, winning_option_id)
     _resolve_duels_for_event(conn, event_id, winning_option_id)  # before close
 

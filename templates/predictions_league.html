@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}🏆 Nedēļas Līga{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; --blue:#2196f3; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:860px; margin:0 auto; padding:24px 20px; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center; text-shadow:0 0 30px #f5c84244; margin-bottom:6px; }
+.sub { text-align:center; color:#555; font-size:0.85rem; margin-bottom:24px; }
+.prize-row { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:28px; }
+.prize-card { background:#111118; border:1px solid #2a2a3a; border-radius:14px; padding:20px; text-align:center; }
+.prize-card.p1 { border-color:#f5c84266; }
+.prize-card.p2 { border-color:#c0c0c044; }
+.prize-card.p3 { border-color:#cd7f3244; }
+.prize-medal { font-size:2.4rem; margin-bottom:8px; }
+.prize-amount { font-size:1.4rem; font-weight:700; color:var(--gold); }
+.prize-label { font-size:0.75rem; color:#555; text-transform:uppercase; letter-spacing:1px; margin-top:4px; }
+.countdown-box { background:#111118; border:1px solid #2a2a3a; border-radius:14px; padding:16px; text-align:center; margin-bottom:24px; }
+.countdown-box .label { color:#555; font-size:0.8rem; text-transform:uppercase; letter-spacing:1px; }
+.countdown-box .timer { font-size:1.6rem; font-weight:700; color:var(--gold); }
+.my-rank-box { background:linear-gradient(135deg,#1a1a0a,#0a0a14); border:1px solid var(--gold); border-radius:14px; padding:16px 20px; margin-bottom:24px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+.my-rank-box .rank-num { font-size:2rem; font-weight:700; color:var(--gold); }
+.panel { background:#111118; border:1px solid #2a2a3a; border-radius:14px; padding:20px; margin-bottom:20px; }
+.panel-title { color:var(--gold); font-weight:700; font-size:0.9rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:16px; }
+.lb-row { display:grid; grid-template-columns:36px 1fr auto auto auto; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid #111120; }
+.lb-row:last-child { border:none; }
+.lb-row.me { background:#1a1a0a; border-radius:8px; padding:10px 8px; }
+.lb-rank { font-weight:700; text-align:center; color:#555; }
+.lb-rank.p1 { color:#f5c842; }
+.lb-rank.p2 { color:#c0c0c0; }
+.lb-rank.p3 { color:#cd7f32; }
+.lb-name { font-weight:600; }
+.lb-name a { color:#e0e0e0; text-decoration:none; }
+.lb-name a:hover { color:var(--gold); }
+.tier-pill { font-size:0.68rem; font-weight:700; padding:2px 8px; border-radius:20px; margin-left:6px; }
+.t-oracle  { background:#a855f718; border:1px solid #a855f7; color:#a855f7; }
+.t-expert  { background:#f5c84218; border:1px solid #f5c842; color:#f5c842; }
+.t-gold    { background:#f5c84212; border:1px solid #fbbf24; color:#fbbf24; }
+.t-silver  { background:#c0c0c018; border:1px solid #c0c0c0; color:#c0c0c0; }
+.t-bronze  { background:#cd7f3218; border:1px solid #cd7f32; color:#cd7f32; }
+.t-unranked{ background:#1a1a2e;   border:1px solid #333;    color:#555; }
+.lb-wins  { color:#aaa; font-size:0.85rem; text-align:center; }
+.lb-bets  { color:#555; font-size:0.8rem;  text-align:center; }
+.lb-profit { font-weight:700; text-align:right; }
+.lb-profit.pos { color:var(--green); }
+.lb-profit.neg { color:var(--red); }
+.past-week-header { color:#888; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; margin:16px 0 8px; padding-bottom:6px; border-bottom:1px solid #1a1a24; }
+.empty { text-align:center; color:#333; padding:40px; }
+.back-link { color:var(--gold); text-decoration:none; display:inline-block; margin-bottom:16px; }
+.col-header { color:#555; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #2a2a3a; padding-bottom:6px; margin-bottom:4px; }
+</style>
+
+<div class="page">
+  <a href="/predictions" class="back-link">← Atpakaļ</a>
+  <h1>🏆 Nedēļas Prognožu Līga</h1>
+  <div class="sub">Nedēļa {{ week_start.strftime('%d.%m') }} – {{ week_end.strftime('%d.%m.%Y') }}</div>
+
+  <div class="prize-row">
+    <div class="prize-card p1">
+      <div class="prize-medal">🥇</div>
+      <div class="prize-amount">{{ prizes[0] }}</div>
+      <div class="prize-label">coins</div>
+    </div>
+    <div class="prize-card p2">
+      <div class="prize-medal">🥈</div>
+      <div class="prize-amount">{{ prizes[1] }}</div>
+      <div class="prize-label">coins</div>
+    </div>
+    <div class="prize-card p3">
+      <div class="prize-medal">🥉</div>
+      <div class="prize-amount">{{ prizes[2] }}</div>
+      <div class="prize-label">coins</div>
+    </div>
+  </div>
+
+  <div class="countdown-box">
+    <div class="label">Līga beidzas pēc</div>
+    <div class="timer" id="league-timer">...</div>
+  </div>
+
+  {% if my_rank %}
+  <div class="my-rank-box">
+    <div>
+      <div style="color:#888;font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;">Tava pozīcija</div>
+      <div class="rank-num">#{{ my_rank.rank }}</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="color:#888;font-size:0.78rem;">Uzvaru / Likmju</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#e0e0e0;">{{ my_rank.wins }} / {{ my_rank.total_bets }}</div>
+    </div>
+    <div style="text-align:right;">
+      <div style="color:#888;font-size:0.78rem;">Peļņa nedēļā</div>
+      <div style="font-size:1.4rem;font-weight:700;color:{{ '#00e676' if my_rank.profit >= 0 else '#ff1744' }};">
+        {{ '%+d'|format(my_rank.profit|int) }} coins
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="panel">
+    <div class="panel-title">📊 Šīs nedēļas tabula</div>
+    {% if current_week %}
+    <div class="lb-row col-header">
+      <span>#</span>
+      <span>Spēlētājs</span>
+      <span style="text-align:center;">Uzvaras</span>
+      <span style="text-align:center;">Likmes</span>
+      <span style="text-align:right;">Peļņa</span>
+    </div>
+    {% for p in current_week %}
+    <div class="lb-row {{ 'me' if p.user_id == session.user_id else '' }}">
+      <div class="lb-rank {{ 'p1' if p.rank==1 else 'p2' if p.rank==2 else 'p3' if p.rank==3 else '' }}">
+        {% if p.rank == 1 %}🥇
+        {% elif p.rank == 2 %}🥈
+        {% elif p.rank == 3 %}🥉
+        {% else %}{{ p.rank }}{% endif %}
+      </div>
+      <div class="lb-name">
+        <a href="/u/{{ p.username }}">{{ p.display_name }}</a>
+        <span class="tier-pill t-{{ p.tier }}">{{ p.tier }}</span>
+        {% if p.user_id == session.user_id %}<span style="color:var(--gold);font-size:0.72rem;"> ★</span>{% endif %}
+      </div>
+      <div class="lb-wins">{{ p.wins }}</div>
+      <div class="lb-bets">{{ p.total_bets }}</div>
+      <div class="lb-profit {{ 'pos' if p.profit >= 0 else 'neg' }}">{{ '%+d'|format(p.profit|int) }}</div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty">
+      <div style="font-size:3rem;margin-bottom:12px;">📊</div>
+      Nav datu šai nedēļai vēl. Liec prognozes!
+    </div>
+    {% endif %}
+  </div>
+
+  {% if past_weeks %}
+  <div class="panel">
+    <div class="panel-title">📅 Iepriekšējās nedēļas</div>
+    {% for ws, rows in past_weeks.items() %}
+    <div class="past-week-header">Nedēļa {{ ws }}</div>
+    {% for p in rows %}
+    <div class="lb-row">
+      <div class="lb-rank {{ 'p1' if p.place==1 else 'p2' if p.place==2 else 'p3' if p.place==3 else '' }}">
+        {% if p.place == 1 %}🥇
+        {% elif p.place == 2 %}🥈
+        {% elif p.place == 3 %}🥉
+        {% else %}{{ p.place }}{% endif %}
+      </div>
+      <div class="lb-name"><a href="/u/{{ p.username }}">{{ p.username }}</a></div>
+      <div class="lb-wins">{{ p.wins }}W</div>
+      <div class="lb-bets"></div>
+      <div class="lb-profit {{ 'pos' if p.profit >= 0 else 'neg' }}">{{ '%+d'|format(p.profit|int) }}</div>
+    </div>
+    {% endfor %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function tickLeague() {
+  const now = new Date();
+  const end = new Date(now);
+  const day = end.getDay();
+  const daysUntilSunday = day === 0 ? 7 : 7 - day;
+  end.setDate(end.getDate() + daysUntilSunday);
+  end.setHours(23, 59, 59, 0);
+  const ms = end - now;
+  const d  = Math.floor(ms / 86400000);
+  const h  = Math.floor((ms % 86400000) / 3600000);
+  const m  = Math.floor((ms % 3600000) / 60000);
+  const s  = Math.floor((ms % 60000) / 1000);
+  document.getElementById('league-timer').textContent =
+    (d > 0 ? d + 'd ' : '') +
+    String(h).padStart(2,'0') + ':' +
+    String(m).padStart(2,'0') + ':' +
+    String(s).padStart(2,'0');
+}
+tickLeague();
+setInterval(tickLeague, 1000);
+</script>
+{% endblock %}

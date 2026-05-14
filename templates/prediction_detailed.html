@@ -219,6 +219,34 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); margin-bottom:6px
         </script>
     </div>
   </div>
+
+<div class="panel" id="comments-panel">
+  <div class="panel-title">💬 Analīze & Diskusija</div>
+
+  {% if event.status == 'open' %}
+  <div style="display:flex;gap:10px;margin-bottom:16px;">
+    <textarea id="comment-inp"
+      placeholder="Dalies ar savu analīzi... (maks. 500 simboli)"
+      maxlength="500"
+      style="flex:1;padding:10px 14px;background:#0a0a14;border:1px solid #333;
+             border-radius:10px;color:#e0e0e0;font-family:'Rajdhani',sans-serif;
+             font-size:0.9rem;resize:vertical;min-height:70px;outline:none;"
+      onfocus="this.style.borderColor='#f5c842'"
+      onblur="this.style.borderColor='#333'"></textarea>
+    <button onclick="postComment()"
+      style="padding:0 20px;background:linear-gradient(135deg,#f5c842,#e6a800);
+             border:none;border-radius:10px;font-family:'Rajdhani',sans-serif;
+             font-weight:700;font-size:0.95rem;color:#000;cursor:pointer;
+             align-self:flex-end;height:44px;">
+      Publicēt
+    </button>
+  </div>
+  {% endif %}
+
+  <div id="comments-list">
+    <div style="color:#333;text-align:center;padding:24px;">Ielādē...</div>
+  </div>
+</div>
 </div>
 
 <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
@@ -296,5 +324,86 @@ function appendFeedRow(text) {
   div.innerHTML = `<span style="color:var(--gold)">${text}</span><span style="color:#333;font-size:.75rem">Tagad</span>`;
   feed.prepend(div);
 }
+
+
+const TIER_ICONS = {
+  oracle:'🔮', expert:'⭐', gold:'🥇', silver:'🥈', bronze:'🥉', unranked:''
+};
+const TIER_COLORS = {
+  oracle:'#a855f7', expert:'#f5c842', gold:'#fbbf24',
+  silver:'#c0c0c0', bronze:'#cd7f32', unranked:'#555'
+};
+
+async function loadComments() {
+  const res  = await fetch(`/api/predictions/${EVENT_ID}/comments`);
+  const data = await res.json();
+  const box  = document.getElementById('comments-list');
+  if (!data.length) {
+    box.innerHTML = '<div style="color:#333;text-align:center;padding:24px;">Nav komentāru vēl. Esi pirmais!</div>';
+    return;
+  }
+  box.innerHTML = data.map(c => {
+    const icon  = TIER_ICONS[c.tier] || '';
+    const color = TIER_COLORS[c.tier] || '#555';
+    const ts    = new Date(c.created_at).toLocaleString('lv-LV', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `
+      <div id="comment-${c.id}" style="padding:14px 0;border-bottom:1px solid #111120;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <a href="/u/${c.username}" style="font-weight:700;font-size:0.9rem;color:${color};text-decoration:none;">
+            ${icon} ${c.display_name}
+          </a>
+          <span style="font-size:0.72rem;color:#333;">${ts}</span>
+        </div>
+        <div style="color:#ccc;font-size:0.9rem;line-height:1.5;margin-bottom:10px;">${c.body}</div>
+        <button onclick="likeComment(${c.id}, this)"
+          style="background:${c.liked_by_me ? '#f5c84222' : 'none'};
+                 border:1px solid ${c.liked_by_me ? '#f5c842' : '#333'};
+                 color:${c.liked_by_me ? '#f5c842' : '#555'};
+                 border-radius:20px;padding:3px 12px;font-size:0.8rem;
+                 cursor:pointer;font-family:'Rajdhani',sans-serif;transition:all .15s;"
+          data-liked="${c.liked_by_me}">
+          👍 <span class="like-count">${c.likes}</span>
+        </button>
+      </div>`;
+  }).join('');
+}
+
+async function postComment() {
+  const inp  = document.getElementById('comment-inp');
+  const body = inp.value.trim();
+  if (!body) return;
+  inp.disabled = true;
+  const res  = await fetch(`/api/predictions/${EVENT_ID}/comments`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({body})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    inp.value    = '';
+    inp.disabled = false;
+    loadComments();
+  } else {
+    alert(data.error);
+    inp.disabled = false;
+  }
+}
+
+async function likeComment(id, btn) {
+  const res  = await fetch(`/api/predictions/comments/${id}/like`, {method:'POST'});
+  const data = await res.json();
+  if (!data.ok) return;
+  const liked = data.liked;
+  btn.style.background   = liked ? '#f5c84222' : 'none';
+  btn.style.borderColor  = liked ? '#f5c842'   : '#333';
+  btn.style.color        = liked ? '#f5c842'   : '#555';
+  btn.dataset.liked      = liked;
+  btn.querySelector('.like-count').textContent = data.likes;
+}
+
+socket.on('prediction_comment', d => {
+  if (d.event_id === EVENT_ID) loadComments();
+});
+
+loadComments();
 </script>
 {% endblock %}
