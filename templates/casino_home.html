@@ -79,6 +79,66 @@ body { background: var(--dark); color: #e0e0e0; font-family: 'Rajdhani', sans-se
 <div class="casino-header">
   <h1>🎰 Come&Play Casino</h1>
   <div class="balance-bar">💰 {{ "%.2f"|format(balance) }} coins</div>
+  <div id="jackpot-ticker" style="
+  text-align:center; margin:-10px 0 20px;
+  font-family:'Cinzel Decorative',serif;
+  font-size:0.95rem; color:#888;
+">
+<div id="missions-bar" style="
+  max-width:900px;margin:0 auto 24px;padding:0 20px;
+">
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;"
+       id="missions-grid">
+  </div>
+</div>
+
+<script>
+async function loadMissions() {
+  const res  = await fetch('/api/missions');
+  const data = await res.json();
+  const grid = document.getElementById('missions-grid');
+  if (!data.missions || !data.missions.length) return;
+
+  grid.innerHTML = data.missions.map(m => {
+    const pct  = Math.min(100, Math.round(m.progress / m.goal * 100));
+    const done = m.completed;
+    return `
+      <div style="
+        background:#111118;border:1px solid ${done ? '#00e676' : '#2a2a3a'};
+        border-radius:12px;padding:14px;opacity:${done ? '.7' : '1'};
+      ">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-weight:700;font-size:0.9rem;color:${done ? '#00e676' : '#e0e0e0'};">
+            ${done ? '✅ ' : ''}${m.title}
+          </span>
+          <span style="color:#f5c842;font-size:0.8rem;font-weight:700;">+${m.reward}</span>
+        </div>
+        <div style="color:#555;font-size:0.78rem;margin-bottom:8px;">${m.description}</div>
+        <div style="background:#1a1a2e;border-radius:4px;height:6px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:${done ? '#00e676' : '#f5c842'};
+                      border-radius:4px;transition:width .5s;"></div>
+        </div>
+        <div style="color:#444;font-size:0.72rem;margin-top:4px;text-align:right;">
+          ${m.progress}/${m.goal}
+        </div>
+      </div>`;
+  }).join('');
+}
+loadMissions();
+</script>
+  🎰 Progresīvā Džekpota Fonds: <strong id="jp-amount" style="color:var(--gold)">...</strong>
+</div>
+
+<script>
+async function loadJackpot() {
+  const res  = await fetch('/api/jackpot');
+  const data = await res.json();
+  const el   = document.getElementById('jp-amount');
+  if (el) el.textContent = parseFloat(data.amount).toFixed(0) + ' coins';
+}
+loadJackpot();
+setInterval(loadJackpot, 15000);
+</script>
 </div>
 
 <div class="games-grid">
@@ -126,6 +186,11 @@ body { background: var(--dark); color: #e0e0e0; font-family: 'Rajdhani', sans-se
     <div class="game-icon">🗼</div>
     <div class="game-name">Tower</div>
     <div class="game-desc">Kāp augšup!</div>
+  </a>
+  <a href="/casino/highroller" class="game-card" style="border-color:#f5c84244;">
+    <div class="game-icon">💎</div>
+    <div class="game-name" style="color:#f5c842;">High-Roller</div>
+    <div class="game-desc">VIP telpa — Gold+ tier</div>
   </a>
   <a href="/casino/history" class="game-card">
     <div class="game-icon">📊</div>
@@ -193,6 +258,37 @@ async function loadFeed() {
 }
 loadFeed();
 setInterval(loadFeed, 15000);
+
+
+
+
+// Add inside the setTimeout after clearInterval(interval):
+if (data.jackpot_hit) {
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,.88);
+    display:flex;align-items:center;justify-content:center;
+    z-index:999;flex-direction:column;gap:16px;
+    font-family:'Cinzel Decorative',serif;
+  `;
+  modal.innerHTML = `
+    <div style="font-size:3rem;animation:none;">💎💎💎</div>
+    <div style="font-size:2rem;color:#f5c842;">MEGA JACKPOT!</div>
+    <div style="color:#00e676;font-size:1.4rem;">+${data.winnings.toFixed(0)} coins!</div>
+    <button onclick="this.closest('[style]').remove()"
+      style="padding:12px 28px;background:#f5c842;border:none;
+             border-radius:10px;font-weight:700;cursor:pointer;
+             font-family:'Rajdhani',sans-serif;font-size:1rem;color:#000">
+      Aizvērt
+    </button>`;
+  document.body.appendChild(modal);
+}
+
+// Update jackpot pool display if element exists
+if (data.jackpot_pool) {
+  const jp = document.getElementById('jp-amount');
+  if (jp) jp.textContent = data.jackpot_pool.toFixed(0) + ' coins';
+}
 </script>
 
 {% if history %}

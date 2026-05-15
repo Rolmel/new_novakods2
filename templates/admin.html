@@ -176,6 +176,7 @@ tr:hover td { background: rgba(255,255,255,.015); }
     <div class="tab" onclick="switchTab('clubs', this)">🏛️ Clubs</div>
     <div class="tab" onclick="switchTab('canvas', this)">🎨 Canvas</div>
     <div class="tab" onclick="switchTab('tournaments', this)">🏆 Tournaments</div>
+    
   </div>
 
   <!-- ══════════ USERS TAB ══════════ -->
@@ -210,6 +211,7 @@ tr:hover td { background: rgba(255,255,255,.015); }
                     {{ '⬇ Demote' if u.is_admin else '⬆ Promote' }}
                   </button>
                   <button class="abtn abtn-del" onclick="confirmDelete('user', {{ u.id }}, '{{ u.username }}')">🗑</button>
+                  
                 </div>
               </td>
             </tr>
@@ -281,6 +283,7 @@ tr:hover td { background: rgba(255,255,255,.015); }
                 <div class="btn-row">
                   <button class="abtn abtn-edit" onclick="openEditPrediction({{ e.id }}, '{{ e.title|replace("'","\\'")|replace('"', '&quot;') }}', '{{ e.category }}', '{{ e.status }}')">✏ Edit</button>
                   <button class="abtn abtn-del" onclick="confirmDelete('prediction', {{ e.id }}, '{{ e.title[:30]|replace("'","\\'")|replace('"','&quot;') }}')">🗑</button>
+                  <button class="abtn abtn-tog" onclick="featureEvent({{ e.id }})">⚡ Feature</button>
                 </div>
               </td>
             </tr>
@@ -503,6 +506,18 @@ tr:hover td { background: rgba(255,255,255,.015); }
 <div class="toast" id="toast"></div>
 
 <script>
+
+async function featureEvent(id) {
+  const hours = prompt('Cik stundas izcelts? (1-168)', '24');
+  if (!hours) return;
+  const res  = await fetch(`/api/admin/predictions/${id}/feature`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({hours: parseInt(hours)})
+  });
+  const data = await res.json();
+  if (data.ok) toast('⚡ Notikums izcelts!');
+  else toast('❌ ' + data.error, 'err');
+}
 // ── Tab switching ──
 async function createTournament() {
   const msg = document.getElementById('tn-msg');

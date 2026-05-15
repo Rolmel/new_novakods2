@@ -2,6 +2,100 @@
 --  NovaKods — Full PostgreSQL Schema
 --  Run once:  psql -U rolmel -d novakods -f /var/www/html/novakods/schema.sql
 -- ============================================================
+-- UPDATE users SET referral_code = encode(gen_random_bytes(4), 'hex') WHERE referral_code IS NULL;
+
+ALTER TABLE prediction_events
+    ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS featured_until TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS highroller_sessions (
+    user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    unlocked   BOOLEAN NOT NULL DEFAULT FALSE,
+    unlocked_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS mission_definitions (
+    id          SERIAL PRIMARY KEY,
+    slug        TEXT UNIQUE NOT NULL,
+    title       TEXT NOT NULL,
+    description TEXT NOT NULL,
+    goal        INTEGER NOT NULL DEFAULT 1,
+    reward      INTEGER NOT NULL DEFAULT 50,
+    category    TEXT NOT NULL DEFAULT 'casino'
+);
+
+CREATE TABLE IF NOT EXISTS user_missions (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mission_id  INTEGER NOT NULL REFERENCES mission_definitions(id),
+    progress    INTEGER NOT NULL DEFAULT 0,
+    completed   BOOLEAN NOT NULL DEFAULT FALSE,
+    day         DATE    NOT NULL DEFAULT CURRENT_DATE,
+    UNIQUE (user_id, mission_id, day)
+);
+
+CREATE INDEX IF NOT EXISTS user_missions_day ON user_missions(user_id, day);
+
+INSERT INTO mission_definitions (slug, title, description, goal, reward, category) VALUES
+('spin_3',          '3 Griezieni',          'Nospēlē slots 3 reizes',              3,   75,  'casino'),
+('win_slots',       'Slots Uzvarētājs',      'Uzvar slots spēlē',                   1,   100, 'casino'),
+('place_prediction','Prognozētājs',          'Liec prognozi',                        1,   100, 'predictions'),
+('play_blackjack',  'Blackjack Spēlētājs',   'Nospēlē blackjack rokas',             2,   100, 'casino'),
+('win_highlow',     'Augsts vai Zems',       'Uzvar High/Low spēlē',                3,   150, 'casino'),
+('chat_message',    'Sabiedrisks',           'Nosūti ziņu Lobby čatā',              1,   50,  'social'),
+('casino_any',      'Kazino Apmeklētājs',    'Spēlē jebkuru kazino spēli',          5,   200, 'casino'),
+('prediction_win',  'Pareizs Prognozētājs',  'Uzvar prognozi (atrisināšanas brīdī)',1,   300, 'predictions')
+ON CONFLICT (slug) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS referrals (
+    id            SERIAL PRIMARY KEY,
+    referrer_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    referred_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    bonus_paid    BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (referred_id)
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT UNIQUE;
+
+CREATE TABLE IF NOT EXISTS season_rankings (
+    id           SERIAL PRIMARY KEY,
+    season       TEXT NOT NULL,        -- e.g. '2025-Q2'
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    username     TEXT NOT NULL,
+    category     TEXT NOT NULL,        -- 'predictions' | 'casino' | 'overall'
+    score        NUMERIC(12,2) NOT NULL DEFAULT 0,
+    rank_place   INTEGER,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (season, user_id, category)
+);
+
+CREATE TABLE IF NOT EXISTS club_challenges (
+    id              SERIAL PRIMARY KEY,
+    challenger_id   INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    defender_id     INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    event_id        INTEGER NOT NULL REFERENCES prediction_events(id) ON DELETE CASCADE,
+    challenger_option_id INTEGER NOT NULL REFERENCES prediction_options(id),
+    defender_option_id   INTEGER,
+    pot_per_club    INTEGER NOT NULL DEFAULT 100,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    winner_club_id  INTEGER REFERENCES clubs(id),
+    created_by      INTEGER REFERENCES users(id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at     TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS progressive_jackpot (
+    id         SERIAL PRIMARY KEY,
+    game       TEXT    NOT NULL DEFAULT 'slots',
+    amount     NUMERIC(12,2) NOT NULL DEFAULT 500.00,
+    seed       NUMERIC(12,2) NOT NULL DEFAULT 500.00,
+    last_win_at TIMESTAMPTZ,
+    last_winner TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+INSERT INTO progressive_jackpot (game, amount, seed)
+VALUES ('slots', 500, 500) ON CONFLICT DO NOTHING;
 
 ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS min_tier TEXT NOT NULL DEFAULT 'unranked';
 

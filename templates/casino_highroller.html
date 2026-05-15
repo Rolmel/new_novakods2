@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}💎 High-Roller Slots{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:500px; margin:0 auto; padding:30px 20px; text-align:center; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); font-size:1.8rem; }
+.vip-badge {
+  display:inline-block;background:#f5c84222;border:1px solid var(--gold);
+  border-radius:20px;padding:4px 18px;font-size:0.82rem;color:var(--gold);
+  font-weight:700;margin-bottom:16px;letter-spacing:1px;
+}
+.machine {
+  background:linear-gradient(145deg,#1a1000,#160e00);
+  border:3px solid var(--gold);border-radius:24px;padding:30px;margin:20px 0;
+  box-shadow:0 0 60px #f5c84233,inset 0 0 20px #00000066;
+}
+.reels { display:flex;gap:10px;justify-content:center;margin:20px 0; }
+.reel {
+  width:90px;height:90px;background:#0a0608;border:2px solid var(--gold);
+  border-radius:12px;display:flex;align-items:center;justify-content:center;
+  font-size:3rem;
+}
+.reel.spinning { animation:spin .15s linear infinite; }
+@keyframes spin { 0%{transform:translateY(-5px)} 50%{transform:translateY(5px)} 100%{transform:translateY(-5px)} }
+.balance-display { color:var(--gold);font-size:1.3rem;margin:10px 0;font-weight:600; }
+.bet-control { display:flex;align-items:center;justify-content:center;gap:12px;margin:16px 0; }
+.bet-control button {
+  width:36px;height:36px;background:#1a1000;border:1px solid var(--gold);
+  color:var(--gold);border-radius:8px;font-size:1.2rem;cursor:pointer;
+}
+.spin-btn {
+  width:100%;padding:16px;background:linear-gradient(135deg,#f5c842,#c89800);
+  border:none;border-radius:12px;font-family:'Rajdhani',sans-serif;
+  font-size:1.4rem;font-weight:700;color:#000;cursor:pointer;
+  box-shadow:0 4px 20px #f5c84244;
+}
+.spin-btn:disabled { opacity:.5;cursor:not-allowed; }
+.result-msg { margin:16px 0;padding:12px 20px;border-radius:10px;font-size:1.1rem;font-weight:600;min-height:46px; }
+.result-win  { background:#00e67622;border:1px solid var(--green);color:var(--green); }
+.result-loss { background:#ff174422;border:1px solid var(--red);color:#ff8888; }
+.result-neutral { background:#1a1000;border:1px solid #333;color:#888; }
+.back-link { color:var(--gold);text-decoration:none; }
+.paytable { background:#0a0800;border-radius:12px;padding:16px;margin-top:20px;text-align:left; }
+.paytable h3 { color:var(--gold);font-size:.9rem;text-align:center;margin:0 0 10px; }
+.pay-row { display:flex;justify-content:space-between;padding:4px 0;font-size:.85rem;border-bottom:1px solid #1a1000; }
+</style>
+
+<div class="page">
+  <a href="/casino" class="back-link">← Atpakaļ uz kazino</a>
+  <h1>💎 High-Roller Slots</h1>
+  <div class="vip-badge">✦ VIP TELPA ✦</div>
+  <div class="machine">
+    <div class="balance-display">💰 <span id="balance">{{ "%.2f"|format(balance) }}</span> coins</div>
+    <div class="reels">
+      <div class="reel" id="r0">💎</div>
+      <div class="reel" id="r1">💎</div>
+      <div class="reel" id="r2">💎</div>
+    </div>
+    <div class="bet-control">
+      <button onclick="changeBet(-50)">−</button>
+      <span>Likme: <b id="bet-val">100</b> coins</span>
+      <button onclick="changeBet(50)">+</button>
+    </div>
+    <div style="color:#555;font-size:0.78rem;margin-bottom:10px;">Min: 100 · Max: 10,000</div>
+    <button class="spin-btn" id="spin-btn" onclick="spin()">💎 GRIEZT VIP!</button>
+    <div class="result-msg result-neutral" id="result-msg">VIP spēle — labākas izmaksas!</div>
+  </div>
+  <div class="paytable">
+    <h3>💎 VIP Izmaksu Tabula</h3>
+    <div class="pay-row"><span>💎💎💎</span><span>x60</span></div>
+    <div class="pay-row"><span>7️⃣7️⃣7️⃣</span><span>x25</span></div>
+    <div class="pay-row"><span>⭐⭐⭐</span><span>x12</span></div>
+    <div class="pay-row"><span>🔔🔔🔔</span><span>x9</span></div>
+    <div class="pay-row"><span>🍋🍋🍋</span><span>x6</span></div>
+    <div class="pay-row"><span>🍒🍒🍒</span><span>x4</span></div>
+    <div class="pay-row"><span>Divi vienādi</span><span>x1.6</span></div>
+  </div>
+</div>
+
+<script>
+let bet = 100;
+let spinning = false;
+const symbols = ['🍒','🍋','🔔','⭐','7️⃣','💎'];
+
+function changeBet(d) {
+  bet = Math.max(100, Math.min(10000,
+    Math.min(parseFloat(document.getElementById('balance').textContent), bet + d)));
+  document.getElementById('bet-val').textContent = bet;
+}
+
+async function spin() {
+  if (spinning) return;
+  spinning = true;
+  document.getElementById('spin-btn').disabled = true;
+
+  const iv = setInterval(() => {
+    ['r0','r1','r2'].forEach(id => {
+      document.getElementById(id).textContent =
+        symbols[Math.floor(Math.random() * symbols.length)];
+    });
+  }, 80);
+
+  const res  = await fetch('/api/casino/highroller/slots', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bet})
+  });
+  const data = await res.json();
+
+  setTimeout(() => {
+    clearInterval(iv);
+    if (data.error) {
+      document.getElementById('result-msg').className = 'result-msg result-loss';
+      document.getElementById('result-msg').textContent = '❌ ' + data.error;
+      spinning = false;
+      document.getElementById('spin-btn').disabled = false;
+      return;
+    }
+    ['r0','r1','r2'].forEach((id, i) =>
+      document.getElementById(id).textContent = data.reels[i]);
+    const msg = document.getElementById('result-msg');
+    if (data.net > 0) {
+      msg.className = 'result-msg result-win';
+      msg.textContent = `💎 ${data.result} +${data.winnings.toFixed(0)} coins!`;
+      showWinCard('slots_hr', data.net);
+    } else {
+      msg.className = 'result-msg result-loss';
+      msg.textContent = `😞 ${data.result}`;
+    }
+    document.getElementById('balance').textContent = data.balance.toFixed(2);
+    bet = Math.min(bet, data.balance);
+    document.getElementById('bet-val').textContent = bet;
+    spinning = false;
+    document.getElementById('spin-btn').disabled = false;
+  }, 1200);
+}
+</script>
+{% endblock %}

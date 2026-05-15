@@ -192,6 +192,45 @@ def index():
 def profile_redirect():
     return redirect(url_for('profile_page', username=session['user_name']))
 
+def _process_referral(conn, new_user_id: int, referral_code: str):
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id FROM users WHERE referral_code = %s", (referral_code,)
+    )
+    row = cur.fetchone()
+    if not row or row[0] == new_user_id:
+        cur.close()
+        return
+
+    referrer_id = row[0]
+    BONUS = 250
+
+    try:
+        cur.execute("""
+            INSERT INTO referrals (referrer_id, referred_id, bonus_paid)
+            VALUES (%s, %s, TRUE)
+        """, (referrer_id, new_user_id))
+
+        for uid in (referrer_id, new_user_id):
+            cur.execute("""
+                UPDATE wallets SET balance = balance + %s WHERE user_id = %s
+            """, (BONUS, uid))
+            cur.execute("""
+                INSERT INTO wallet_log (user_id, delta, reason, balance_after)
+                SELECT %s, %s, 'referral_bonus',
+                       balance FROM wallets WHERE user_id = %s
+            """, (uid, BONUS, uid))
+
+        cur.execute("""
+            INSERT INTO notifications (user_id, message) VALUES (%s, %s)
+        """, (referrer_id, f'🎉 Tavs ielūgums pieņemts! +{BONUS} monētas bonuss!'))
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        cur.close()
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -221,8 +260,14 @@ def register():
                 (username, hash_pw)
             )
             conn.commit()
+
+            pending_ref = session.pop('pending_referral', None)
+            if pending_ref:
+                _process_referral(conn, new_user_id, pending_ref)
             cur.close()
             flash("Reģistrācija veiksmīga! Tagad vari ielogoties.", 'success')
+
+            
             return redirect(url_for('login'))
         except psycopg2.errors.UniqueViolation:
             flash("Lietotājvārds jau aizņemts!", 'error')
@@ -278,6 +323,541 @@ def logout():
 
 
 
+
+
+
+
+
+
+
+
+
+
+def _is_highroller(conn, user_id: int) -> bool:
+    """
+    Unlocked if: Gold+ tier OR 500+ casino games OR balance > 50000
+    """
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute(
+        "SELECT tier FROM predictor_tiers WHERE user_id = %s", (user_id,)
+    )
+    tier_row = cur.fetchone()
+    tier = tier_row['tier'] if tier_row else 'unranked'
+
+    if TIER_RANK.get(tier, 0) >= TIER_RANK.get('gold', 3):
+        cur.close()
+        return True
+
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM casino_transactions WHERE user_id = %s",
+        (user_id,)
+    )
+    if cur.fetchone()['n'] >= 500:
+        cur.close()
+        return True
+
+    cur.execute(
+        "SELECT balance FROM wallets WHERE user_id = %s", (user_id,)
+    )
+    bal_row = cur.fetchone()
+    if bal_row and float(bal_row['balance']) >= 50000:
+        cur.close()
+        return True
+
+    cur.close()
+    return False
+    
+@app.route('/casino/highroller')
+@login_required
+def highroller_room():
+    user_id = session['user_id']
+    conn = get_db_connection()
+    if not _is_highroller(conn, user_id):
+        conn.close()
+        flash('High-Roller telpa pieejama tikai Gold+ prognozētājiem vai 500+ spēlēm.', 'error')
+        return redirect(url_for('casino_home'))
+    balance = get_or_create_balance(conn, user_id)
+    conn.close()
+    return render_template('casino_highroller.html', balance=balance)
+
+
+@app.route('/api/casino/highroller/slots', methods=['POST'])
+@login_required
+def api_highroller_slots():
+    user_id = session['user_id']
+    conn = get_db_connection()
+
+    if not _is_highroller(conn, user_id):
+        conn.close()
+        return jsonify({'error': 'Piekļuve liegta'}), 403
+
+    data    = request.json or {}
+    bet     = float(data.get('bet', 100))
+    balance = get_or_create_balance(conn, user_id)
+
+    MIN_BET = 100
+    MAX_BET = 10000
+
+    if bet < MIN_BET or bet > MAX_BET or bet > balance:
+        conn.close()
+        return jsonify({'error': f'Likme {MIN_BET}–{MAX_BET} coins'}), 400
+
+    SYMBOLS = ['🍒', '🍋', '🔔', '⭐', '7️⃣', '💎']
+    WEIGHTS  = [25, 22, 18, 15, 12, 8]   # slightly better odds
+    reels    = _random.choices(SYMBOLS, weights=WEIGHTS, k=3)
+
+    if reels[0] == reels[1] == reels[2]:
+        sym   = reels[0]
+        mults = {'💎': 60, '7️⃣': 25, '⭐': 12, '🔔': 9, '🍋': 6, '🍒': 4}
+        mult  = mults.get(sym, 4)
+        winnings = bet * mult - bet
+        result   = f"HR JACKPOT! {sym}{sym}{sym} x{mult}"
+    elif len(set(reels)) < 3:
+        winnings = bet * 0.6
+        result   = "Divi vienādi!"
+    else:
+        winnings = -bet
+        result   = "Neveiksmīgi"
+
+    balance += winnings
+    cur = conn.cursor()
+    cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
+    record_transaction(conn, user_id, 'slots_hr', bet, result, winnings, balance)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    if winnings >= _FEED_MIN_WIN:
+        c2 = get_db_connection()
+        _post_feed(user_id, 'big_win', 'highroller', winnings, message=result)
+        c2.close()
+
+    return jsonify({
+        'reels':    reels,
+        'result':   result,
+        'winnings': winnings,
+        'net':      winnings,
+        'balance':  balance,
+    })
+
+@app.route('/api/admin/predictions/<int:event_id>/feature', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_feature_prediction(event_id):
+    data    = request.json or {}
+    hours   = int(data.get('hours', 24))
+    conn    = get_db_connection()
+    cur     = conn.cursor()
+    cur.execute("""
+        UPDATE prediction_events
+        SET is_featured = TRUE,
+            featured_until = NOW() + (%s * INTERVAL '1 hour')
+        WHERE id = %s
+    """, (hours, event_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/missions')
+@login_required
+def api_missions():
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    missions = _get_todays_missions(conn, user_id)
+    conn.close()
+    return jsonify({'missions': missions}) 
+
+import random as _random
+
+_DAILY_POOL = [
+    'spin_3', 'win_slots', 'place_prediction',
+    'play_blackjack', 'win_highlow', 'chat_message',
+    'casino_any', 'prediction_win',
+]
+
+def _get_todays_missions(conn, user_id: int) -> list[dict]:
+    from datetime import date
+    today = date.today()
+
+    # Use a seeded random so every user gets the SAME 3 missions each day
+    # but different from yesterday (day-based seed)
+    day_seed = int(today.strftime('%Y%m%d'))
+    rng = _random.Random(day_seed)
+    chosen_slugs = rng.sample(_DAILY_POOL, 3)
+
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT md.*, COALESCE(um.progress, 0) AS progress,
+               COALESCE(um.completed, FALSE) AS completed
+        FROM mission_definitions md
+        LEFT JOIN user_missions um
+            ON um.mission_id = md.id
+            AND um.user_id = %s AND um.day = %s
+        WHERE md.slug = ANY(%s)
+        ORDER BY md.id
+    """, (user_id, today, chosen_slugs))
+    missions = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return missions
+
+
+def _progress_mission(conn, user_id: int, slug: str, amount: int = 1) -> list[str]:
+    """
+    Increment progress on a mission. Returns list of newly completed mission slugs.
+    Call this after any relevant game action.
+    """
+    from datetime import date
+    today    = date.today()
+    rewarded = []
+
+    day_seed = int(today.strftime('%Y%m%d'))
+    rng = _random.Random(day_seed)
+    chosen_slugs = rng.sample(_DAILY_POOL, 3)
+
+    if slug not in chosen_slugs:
+        return rewarded
+
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT md.id, md.goal, md.reward,
+               COALESCE(um.progress, 0)  AS progress,
+               COALESCE(um.completed, FALSE) AS completed,
+               um.id AS um_id
+        FROM mission_definitions md
+        LEFT JOIN user_missions um
+            ON um.mission_id = md.id
+            AND um.user_id = %s AND um.day = %s
+        WHERE md.slug = %s
+    """, (user_id, today, slug))
+    row = cur.fetchone()
+
+    if not row or row['completed']:
+        cur.close()
+        return rewarded
+
+    new_progress = min(row['progress'] + amount, row['goal'])
+    completed    = new_progress >= row['goal']
+
+    cur2 = conn.cursor()
+    if row['um_id']:
+        cur2.execute("""
+            UPDATE user_missions
+            SET progress = %s, completed = %s
+            WHERE id = %s
+        """, (new_progress, completed, row['um_id']))
+    else:
+        cur2.execute("""
+            INSERT INTO user_missions (user_id, mission_id, progress, completed, day)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (user_id, row['id'], new_progress, completed, today))
+
+    if completed:
+        reward = row['reward']
+        cur2.execute("""
+            UPDATE wallets SET balance = balance + %s WHERE user_id = %s
+        """, (reward, user_id))
+        cur2.execute("""
+            INSERT INTO wallet_log (user_id, delta, reason, balance_after)
+            SELECT %s, %s, 'mission_reward', balance FROM wallets WHERE user_id = %s
+        """, (user_id, reward, user_id))
+        cur2.execute("""
+            INSERT INTO notifications (user_id, message) VALUES (%s, %s)
+        """, (user_id, f'✅ Misija izpildīta! +{reward} monētas!'))
+        rewarded.append(slug)
+
+    conn.commit()
+    cur.close()
+    cur2.close()
+    return rewarded
+
+@app.route('/api/referral/stats')
+@login_required
+def api_referral_stats():
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN bonus_paid THEN 1 ELSE 0 END) AS paid
+        FROM referrals WHERE referrer_id = %s
+    """, (user_id,))
+    stats = dict(cur.fetchone())
+    cur.execute(
+        "SELECT referral_code FROM users WHERE id = %s", (user_id,)
+    )
+    stats['code'] = cur.fetchone()['referral_code']
+    cur.close()
+    conn.close()
+    return jsonify(stats)
+
+@app.route('/ref/<string:code>')
+def referral_landing(code):
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        "SELECT username FROM users WHERE referral_code = %s", (code,)
+    )
+    referrer = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not referrer:
+        return redirect(url_for('register'))
+
+    from flask import session as s
+    s['pending_referral'] = code
+    flash(f"Reģistrējies un abi saņemsiet 250 bonusa monētas! (Ielūgums no {referrer['username']})", 'success')
+    return redirect(url_for('register'))
+
+@app.route('/api/referral/my_code')
+@login_required
+def api_my_referral_code():
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    cur.execute("SELECT referral_code FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+
+    if not row or not row[0]:
+        import secrets
+        code = secrets.token_hex(4)
+        cur.execute("UPDATE users SET referral_code = %s WHERE id = %s", (code, user_id))
+        conn.commit()
+    else:
+        code = row[0]
+
+    cur.close()
+    conn.close()
+    return jsonify({'code': code, 'url': f'/ref/{code}'})
+
+def _snapshot_season(conn, season: str):
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur2 = conn.cursor()
+
+    # Prediction score: profit from resolved predictions this season
+    cur.execute("""
+        SELECT u.id AS user_id, u.username,
+               COALESCE(SUM(p.payout - p.stake), 0) AS score
+        FROM predictions p
+        JOIN prediction_events pe ON pe.id = p.event_id AND pe.status = 'resolved'
+        JOIN users u ON u.id = p.user_id
+        WHERE p.created_at >= %s
+        GROUP BY u.id, u.username
+        ORDER BY score DESC
+    """, (f'{season[:4]}-01-01',))
+
+    for i, row in enumerate(cur.fetchall(), 1):
+        cur2.execute("""
+            INSERT INTO season_rankings
+                (season, user_id, username, category, score, rank_place)
+            VALUES (%s, %s, %s, 'predictions', %s, %s)
+            ON CONFLICT (season, user_id, category)
+            DO UPDATE SET score = EXCLUDED.score, rank_place = EXCLUDED.rank_place
+        """, (season, row['user_id'], row['username'], row['score'], i))
+
+    conn.commit()
+    cur.close()
+    cur2.close()
+
+@app.route('/api/hall_of_fame')
+@login_required
+def api_hall_of_fame():
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT season, category, username, score, rank_place
+        FROM season_rankings
+        WHERE rank_place <= 3
+        ORDER BY season DESC, category, rank_place
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+
+    by_season = {}
+    for r in rows:
+        key = r['season']
+        by_season.setdefault(key, []).append(r)
+
+    return jsonify({'seasons': by_season})
+
+def _resolve_club_challenges(conn, event_id: int, winning_option_id: int):
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT * FROM club_challenges
+        WHERE event_id = %s AND status = 'accepted'
+    """, (event_id,))
+    challenges = cur.fetchall()
+
+    cur2 = conn.cursor()
+    for ch in challenges:
+        if ch['challenger_option_id'] == winning_option_id:
+            winner_id = ch['challenger_id']
+            loser_id  = ch['defender_id']
+        elif ch['defender_option_id'] == winning_option_id:
+            winner_id = ch['defender_id']
+            loser_id  = ch['challenger_id']
+        else:
+            continue
+
+        # Notify winner club members
+        cur2.execute(
+            "SELECT user_id FROM club_members WHERE club_id = %s", (winner_id,)
+        )
+        for row in cur2.fetchall():
+            cur2.execute("""
+                INSERT INTO notifications (user_id, message)
+                VALUES (%s, %s)
+            """, (row[0], f'🏆 Jūsu klubs uzvarēja prognožu duelī! +{ch["pot_per_club"]} coins!'))
+
+        cur2.execute("""
+            UPDATE club_challenges
+            SET status = 'resolved', winner_club_id = %s, resolved_at = NOW()
+            WHERE id = %s
+        """, (winner_id, ch['id']))
+
+    conn.commit()
+    cur.close()
+    cur2.close()
+
+@app.route('/api/club_challenges/<int:cid>/accept', methods=['POST'])
+@login_required
+def api_club_challenge_accept(cid):
+    user_id   = session['user_id']
+    data      = request.json or {}
+    option_id = int(data.get('option_id', 0))
+
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM club_challenges WHERE id = %s", (cid,))
+    ch = cur.fetchone()
+    if not ch or ch['status'] != 'pending':
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav atrasts'}), 404
+
+    # Must be member of defender club
+    cur.execute(
+        "SELECT role FROM club_members WHERE club_id = %s AND user_id = %s",
+        (ch['defender_id'], user_id)
+    )
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav kluba dalībnieks'}), 403
+
+    if option_id == ch['challenger_option_id']:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Izvēlies citu opciju'}), 400
+
+    cur2 = conn.cursor()
+    cur2.execute("""
+        UPDATE club_challenges
+        SET status = 'accepted', defender_option_id = %s
+        WHERE id = %s
+    """, (option_id, cid))
+    conn.commit()
+    cur2.close()
+    cur.close()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/clubs/<int:club_id>/challenge', methods=['POST'])
+@login_required
+def api_club_challenge(club_id):
+    user_id = session['user_id']
+    data    = request.json or {}
+
+    # Must be a member of challenger club
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        "SELECT role FROM club_members WHERE club_id = %s AND user_id = %s",
+        (club_id, user_id)
+    )
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav kluba dalībnieks'}), 403
+
+    defender_id = int(data.get('defender_id', 0))
+    event_id    = int(data.get('event_id', 0))
+    option_id   = int(data.get('option_id', 0))
+    pot         = int(data.get('pot', 100))
+
+    if defender_id == club_id:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nevar izaicināt sevi'}), 400
+
+    # Verify event is open
+    cur.execute("SELECT status FROM prediction_events WHERE id = %s", (event_id,))
+    event = cur.fetchone()
+    if not event or event['status'] != 'open':
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Notikums nav pieejams'}), 400
+
+    cur2 = conn.cursor()
+    cur2.execute("""
+        INSERT INTO club_challenges
+            (challenger_id, defender_id, event_id, challenger_option_id, pot_per_club, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+    """, (club_id, defender_id, event_id, option_id, pot, user_id))
+    cid = cur2.fetchone()[0]
+
+    # Notify defender club members
+    cur2.execute("""
+        SELECT user_id FROM club_members WHERE club_id = %s
+    """, (defender_id,))
+    for row in cur2.fetchall():
+        cur2.execute("""
+            INSERT INTO notifications (user_id, message)
+            VALUES (%s, %s)
+        """, (row[0], f'⚔️ Klubs izaicināts prognožu duelī! /clubs/{defender_id}'))
+
+    conn.commit()
+    cur.close()
+    cur2.close()
+    conn.close()
+    return jsonify({'ok': True, 'challenge_id': cid})
+
+@app.route('/api/jackpot')
+def api_jackpot():
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT amount, last_winner, last_win_at FROM progressive_jackpot WHERE game='slots'")
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return jsonify(dict(row) if row else {'amount': 500, 'last_winner': None})
+
+def _get_jackpot(conn) -> float:
+    cur = conn.cursor()
+    cur.execute("SELECT amount FROM progressive_jackpot WHERE game = 'slots'")
+    row = cur.fetchone()
+    cur.close()
+    return float(row[0]) if row else 500.0
+
+def _contribute_jackpot(conn, bet: float) -> None:
+    contrib = round(bet * 0.01, 2)  # 1% of each bet feeds the jackpot
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE progressive_jackpot
+        SET amount = amount + %s, updated_at = NOW()
+        WHERE game = 'slots'
+    """, (contrib,))
+    cur.close()
+
+def _trigger_jackpot(conn, user_id: int, username: str) -> float:
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE progressive_jackpot
+        SET amount = seed, last_win_at = NOW(), last_winner = %s, updated_at = NOW()
+        WHERE game = 'slots'
+        RETURNING seed
+    """, (username,))
+    seed = float(cur.fetchone()[0])
+    cur.close()
+    # We return the jackpot BEFORE reset (the old amount)
+    return seed
 
 
 
@@ -1257,58 +1837,71 @@ def _start_tournament_scheduler():
     resolves those whose end_time has passed.
     """
     def loop():
-    while True:
-        socketio.sleep(30)
-        try:
-            conn = get_db_connection()  # MUST be first
-            cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        while True:
+            socketio.sleep(30)
+            try:
+                conn = get_db_connection()  # MUST be first
+                cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-            from datetime import date, timedelta
-            today_d = date.today()
-            if today_d.weekday() == 0:
-                last_week = today_d - timedelta(days=7)
-                cur_chk = conn.cursor()
-                cur_chk.execute("""
-                    SELECT 1 FROM wallet_log
-                    WHERE reason = 'weekly_league_prize'
-                    AND created_at >= NOW() - INTERVAL '8 days'
-                    AND created_at < NOW() - INTERVAL '1 day'
-                    LIMIT 1
-                """)
-                if not cur_chk.fetchone():
+                from datetime import date
+                today_d = date.today()
+                # Snapshot on the first day of each quarter
+                if today_d.day == 1 and today_d.month in (1, 4, 7, 10):
+                    quarter = f"{today_d.year}-Q{(today_d.month - 1)//3 + 1}"
                     try:
-                        _award_weekly_prizes(conn, last_week)
+                        conn_s = get_db_connection()
+                        _snapshot_season(conn_s, quarter)
+                        conn_s.close()
+                        app.logger.info(f'[season] snapshot taken for {quarter}')
                     except Exception as e:
-                        app.logger.error(f'[weekly_league] award error: {e}')
-                cur_chk.close()
+                        app.logger.error(f'[season] snapshot error: {e}')
 
-            cur.execute("""
-                UPDATE tournaments SET status = 'active'
-                WHERE status = 'upcoming' AND starts_at <= NOW()
-                RETURNING id, name
-            """)
-            for row in cur.fetchall():
-                socketio.emit('tournament_update', {'tournament_id': row['id']})
-            conn.commit()
+                from datetime import date, timedelta
+                today_d = date.today()
+                if today_d.weekday() == 0:
+                    last_week = today_d - timedelta(days=7)
+                    cur_chk = conn.cursor()
+                    cur_chk.execute("""
+                        SELECT 1 FROM wallet_log
+                        WHERE reason = 'weekly_league_prize'
+                        AND created_at >= NOW() - INTERVAL '8 days'
+                        AND created_at < NOW() - INTERVAL '1 day'
+                        LIMIT 1
+                    """)
+                    if not cur_chk.fetchone():
+                        try:
+                            _award_weekly_prizes(conn, last_week)
+                        except Exception as e:
+                            app.logger.error(f'[weekly_league] award error: {e}')
+                    cur_chk.close()
 
-            cur.execute("""
-                SELECT id FROM tournaments
-                WHERE status = 'active' AND ends_at <= NOW()
-            """)
-            expired = [r['id'] for r in cur.fetchall()]
-            cur.close()
-            conn.close()
+                cur.execute("""
+                    UPDATE tournaments SET status = 'active'
+                    WHERE status = 'upcoming' AND starts_at <= NOW()
+                    RETURNING id, name
+                """)
+                for row in cur.fetchall():
+                    socketio.emit('tournament_update', {'tournament_id': row['id']})
+                conn.commit()
 
-            for tid in expired:
-                try:
-                    conn2 = get_db_connection()
-                    _resolve_tournament(conn2, tid)
-                    conn2.close()
-                except Exception as e:
-                    app.logger.error(f'[tournament] resolve error tid={tid}: {e}')
+                cur.execute("""
+                    SELECT id FROM tournaments
+                    WHERE status = 'active' AND ends_at <= NOW()
+                """)
+                expired = [r['id'] for r in cur.fetchall()]
+                cur.close()
+                conn.close()
 
-        except Exception as e:
-            app.logger.error(f'[tournament scheduler] {e}')
+                for tid in expired:
+                    try:
+                        conn2 = get_db_connection()
+                        _resolve_tournament(conn2, tid)
+                        conn2.close()
+                    except Exception as e:
+                        app.logger.error(f'[tournament] resolve error tid={tid}: {e}')
+
+            except Exception as e:
+                app.logger.error(f'[tournament scheduler] {e}')
     socketio.start_background_task(loop)
 
 def _resolve_tournament(conn, tid: int):
@@ -1638,6 +2231,9 @@ def handle_messages(group_id):
         conn.commit()
         cur.close()
         conn.close()
+        conn2 = get_db_connection()
+        _progress_mission(conn2, user_id, 'chat_message')
+        conn2.close()
         return jsonify({"status": "ok"})
 
     cur.execute("""
@@ -2061,41 +2657,57 @@ def slots():
 @app.route('/api/casino/slots', methods=['POST'])
 @login_required
 def api_slots():
-    user_id = session['user_id']
-    data = request.json
-    bet = float(data.get('bet', 10))
-    conn = get_db_connection()
-    balance = get_or_create_balance(conn, user_id)
+    user_id  = session['user_id']
+    username = session.get('user_name', '?')
+    data     = request.json
+    bet      = float(data.get('bet', 10))
+    conn     = get_db_connection()
+    balance  = get_or_create_balance(conn, user_id)
+
     if bet <= 0 or bet > balance:
         conn.close()
         return jsonify({"error": "Nepareizs likmjums"}), 400
 
     SYMBOLS = ['🍒', '🍋', '🔔', '⭐', '7️⃣', '💎']
-    WEIGHTS = [30, 25, 20, 15, 8, 2]
-    reels = random.choices(SYMBOLS, weights=WEIGHTS, k=3)
+    WEIGHTS  = [30, 25, 20, 15, 8, 2]
+    reels    = random.choices(SYMBOLS, weights=WEIGHTS, k=3)
+
+    jackpot_amount = _get_jackpot(conn)
+    jackpot_hit    = False
 
     if reels[0] == reels[1] == reels[2]:
         sym = reels[0]
-        multipliers = {'💎': 50, '7️⃣': 20, '⭐': 10, '🔔': 7, '🍋': 5, '🍒': 3}
-        mult = multipliers.get(sym, 3)
-        winnings = bet * mult
-        result = f"JACKPOT! {sym}{sym}{sym} x{mult}"
-    elif reels[0] == reels[1] or reels[1] == reels[2] or reels[0] == reels[2]:
-        winnings = bet * 1.5
-        result = "Divi vienādi!"
-    else:
-        winnings = 0
-        result = "Neveiksmīgi"
+        mults   = {'💎': 50, '7️⃣': 20, '⭐': 10, '🔔': 7, '🍋': 5, '🍒': 3}
+        mult    = mults.get(sym, 3)
+        winnings = bet * mult - bet
+        result   = f"JACKPOT! {sym}{sym}{sym} x{mult}"
 
-    winnings = winnings - bet
-    balance = balance + winnings
+        # Progressive jackpot triggers on triple 💎 (rare bonus on top)
+        if sym == '💎' and random.random() < 0.15:
+            jackpot_hit  = True
+            jackpot_prize = jackpot_amount
+            _trigger_jackpot(conn, user_id, username)
+            winnings += jackpot_prize
+            result    = f"MEGA JACKPOT! 💎💎💎 x{mult} + JACKPOT {jackpot_prize:.0f}!"
+    elif len(set(reels)) < 3:
+        winnings = bet * 0.5
+        result   = "Divi vienādi!"
+    else:
+        winnings = -bet
+        result   = "Neveiksmīgi"
+
+    _contribute_jackpot(conn, bet)
+
+    balance += winnings
     cur = conn.cursor()
     cur.execute("UPDATE wallets SET balance = %s WHERE user_id = %s", (balance, user_id))
     record_transaction(conn, user_id, 'slots', bet, result, winnings, balance)
     conn.commit()
+
     if winnings >= _FEED_MIN_WIN:
-        _post_feed(user_id, 'jackpot', 'slots', net_win, message=result)
-        
+        _post_feed(user_id, 'jackpot' if jackpot_hit else 'big_win',
+                   'slots', winnings, message=result)
+
     cur.close()
     conn.close()
 
@@ -2104,16 +2716,22 @@ def api_slots():
         'game': 'slots', 'net': winnings, 'result': result
     })
     conn2.close()
-
+    conn3 = get_db_connection()
+    _progress_mission(conn3, user_id, 'spin_3')
+    _progress_mission(conn3, user_id, 'casino_any')
+    if winnings > 0:
+        _progress_mission(conn3, user_id, 'win_slots')
+    conn3.close()
     return jsonify({
-        "reels": reels,
-        "result": result,
-        "winnings": winnings,
-        "net": winnings,
-        "balance": balance,
+        "reels":        reels,
+        "result":       result,
+        "winnings":     winnings,
+        "net":          winnings,
+        "balance":      balance,
         "achievements": new_ach,
+        "jackpot_hit":  jackpot_hit,
+        "jackpot_pool": round(_get_jackpot(get_db_connection()), 2),
     })
-
 # ==========================================
 #  BLACKJACK (delegated to redis_games)
 # ==========================================
@@ -2139,8 +2757,12 @@ def api_bj_hit():
 @app.route('/api/casino/blackjack/stand', methods=['POST'])
 @login_required
 def api_bj_stand():
-    return bj_stand(app, session, request)
-
+    result = bj_stand(app, session, request)
+    conn = get_db_connection()
+    _papirogress_mission(conn, session['user_id'], 'play_blackjack')
+    _progress_mission(conn, session['user_id'], 'casino_any')
+    conn.close()
+    return result
 # ==========================================
 #  HIGH / LOW
 # ==========================================
@@ -3766,15 +4388,23 @@ def _update_option_prices(conn, event_id):
 def predictions_list():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # Replace the main query in predictions_list:
+    cur.execute("""
+        UPDATE prediction_events
+        SET is_featured = FALSE
+        WHERE is_featured = TRUE AND featured_until < NOW()
+    """)
+    conn.commit()
+
     cur.execute("""
         SELECT pe.*,
-               COUNT(DISTINCT p.id)        AS total_bets,
-               COALESCE(SUM(p.stake), 0)   AS total_volume
+            COUNT(DISTINCT p.id)        AS total_bets,
+            COALESCE(SUM(p.stake), 0)   AS total_volume
         FROM prediction_events pe
         LEFT JOIN predictions p ON p.event_id = pe.id
         WHERE pe.status IN ('open', 'closed', 'resolved')
         GROUP BY pe.id
-        ORDER BY pe.closes_at ASC
+        ORDER BY pe.is_featured DESC, pe.closes_at ASC
     """)
     events = cur.fetchall()
 
@@ -4031,6 +4661,9 @@ def api_prediction_bet(event_id):
         'event_id': event_id,
         'options':  updated_options
     }, room=f'prediction_{event_id}')
+    conn3 = get_db_connection()
+    _progress_mission(conn3, user_id, 'place_prediction')
+    conn3.close()
 
     return jsonify({'ok': True, 'balance': round(balance, 2), 'options': updated_options})
 
@@ -4104,6 +4737,7 @@ def api_prediction_resolve(event_id):
     _update_weekly_lb(conn, event_id, winning_option_id)
     _update_prediction_stats(conn, event_id, winning_option_id)
     _resolve_duels_for_event(conn, event_id, winning_option_id)  # before close
+    _resolve_club_challenges(conn, event_id, winning_option_id)
 
     socketio.emit('prediction_resolved', {
         'event_id':       event_id,
