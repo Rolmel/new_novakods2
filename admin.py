@@ -964,13 +964,13 @@ def api_tournament_join(tid):
 
     cur.execute("SELECT * FROM tournaments WHERE id = %s", (tid,))
     t = cur.fetchone()
-    tier_error = _check_tournament_tier_gate(conn, user_id, t)
+    if not t:                                    # check None FIRST
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav atrasts'}), 404
+    tier_error = _check_tournament_tier_gate(conn, user_id, t)   # safe now
     if tier_error:
         conn.close()
         return jsonify({'ok': False, 'error': tier_error}), 403
-    if not t:
-        conn.close()
-        return jsonify({'ok': False, 'error': 'Nav atrasts'}), 404
     if t['status'] != 'active':
         conn.close()
         return jsonify({'ok': False, 'error': 'Turnīrs nav aktīvs'}), 400
@@ -1257,64 +1257,58 @@ def _start_tournament_scheduler():
     resolves those whose end_time has passed.
     """
     def loop():
-        while True:
-            socketio.sleep(30)
-            try:
+    while True:
+        socketio.sleep(30)
+        try:
+            conn = get_db_connection()  # MUST be first
+            cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-                from datetime import date, timedelta
-                today_d = date.today()
-                if today_d.weekday() == 0:
-                    last_week = today_d - timedelta(days=7)
-                    cur_chk = conn.cursor()
-                    cur_chk.execute("""
-                        SELECT 1 FROM wallet_log
-                        WHERE reason = 'weekly_league_prize'
-                        AND created_at >= NOW() - INTERVAL '8 days'
-                        AND created_at < NOW() - INTERVAL '1 day'
-                        LIMIT 1
-                    """)
-                    if not cur_chk.fetchone():
-                        try:
-                            _award_weekly_prizes(conn, last_week)
-                            app.logger.info(f'[weekly_league] prizes awarded for {last_week}')
-                        except Exception as e:
-                            app.logger.error(f'[weekly_league] award error: {e}')
-                    cur_chk.close()
-                conn = get_db_connection()
-                cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-                # Activate upcoming tournaments
-                cur.execute("""
-                    UPDATE tournaments SET status = 'active'
-                    WHERE status = 'upcoming' AND starts_at <= NOW()
-                    RETURNING id, name
+            from datetime import date, timedelta
+            today_d = date.today()
+            if today_d.weekday() == 0:
+                last_week = today_d - timedelta(days=7)
+                cur_chk = conn.cursor()
+                cur_chk.execute("""
+                    SELECT 1 FROM wallet_log
+                    WHERE reason = 'weekly_league_prize'
+                    AND created_at >= NOW() - INTERVAL '8 days'
+                    AND created_at < NOW() - INTERVAL '1 day'
+                    LIMIT 1
                 """)
-                for row in cur.fetchall():
-                    app.logger.info(f'[tournament] activated {row["id"]} {row["name"]}')
-                    socketio.emit('tournament_update', {'tournament_id': row['id']})
-
-                conn.commit()
-
-                # Find active tournaments past end time
-                cur.execute("""
-                    SELECT id FROM tournaments
-                    WHERE status = 'active' AND ends_at <= NOW()
-                """)
-                expired = [r['id'] for r in cur.fetchall()]
-                cur.close()
-                conn.close()
-
-                for tid in expired:
+                if not cur_chk.fetchone():
                     try:
-                        conn2 = get_db_connection()
-                        _resolve_tournament(conn2, tid)
-                        conn2.close()
+                        _award_weekly_prizes(conn, last_week)
                     except Exception as e:
-                        app.logger.error(f'[tournament] resolve error tid={tid}: {e}')
+                        app.logger.error(f'[weekly_league] award error: {e}')
+                cur_chk.close()
 
-            except Exception as e:
-                app.logger.error(f'[tournament scheduler] {e}')
+            cur.execute("""
+                UPDATE tournaments SET status = 'active'
+                WHERE status = 'upcoming' AND starts_at <= NOW()
+                RETURNING id, name
+            """)
+            for row in cur.fetchall():
+                socketio.emit('tournament_update', {'tournament_id': row['id']})
+            conn.commit()
 
+            cur.execute("""
+                SELECT id FROM tournaments
+                WHERE status = 'active' AND ends_at <= NOW()
+            """)
+            expired = [r['id'] for r in cur.fetchall()]
+            cur.close()
+            conn.close()
+
+            for tid in expired:
+                try:
+                    conn2 = get_db_connection()
+                    _resolve_tournament(conn2, tid)
+                    conn2.close()
+                except Exception as e:
+                    app.logger.error(f'[tournament] resolve error tid={tid}: {e}')
+
+        except Exception as e:
+            app.logger.error(f'[tournament scheduler] {e}')
     socketio.start_background_task(loop)
 
 def _resolve_tournament(conn, tid: int):
@@ -1972,7 +1966,9 @@ def api_daily_bonus():
     if streak == 30:
         msg = f'🏆 30 dienu sērija! +{bonus} monētas + Zelta kārtis!'
 
-    check_achievements(conn, user_id, {'daily': True})
+    conn2 = get_db_connection()
+    check_achievements(conn2, user_id, {'daily': True})
+    conn2.close()
 
     return jsonify({
         'ok':               True,
@@ -2098,8 +2094,8 @@ def api_slots():
     record_transaction(conn, user_id, 'slots', bet, result, winnings, balance)
     conn.commit()
     if winnings >= _FEED_MIN_WIN:
-        _post_feed(user_id, 'jackpot', 'slots', winnings,
-               message=f"{result}")
+        _post_feed(user_id, 'jackpot', 'slots', net_win, message=result)
+        
     cur.close()
     conn.close()
 

@@ -117,7 +117,10 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
             style="background:#1a3a1a;color:var(--green);border:1px solid var(--green);"
             onclick="unequipSkin()">✨ Aktīvs — Noņemt</button>
       {% else %}
-        <button class="buy-btn can-buy" onclick="equipSkin({{ item.id }}, this)">⚡ Lietot</button>
+        <button class="buy-btn can-buy"
+            onclick="buyItem({{ item.id }}, this)">
+          🛒 Pirkt ({{ item.price }} coins)
+        </button>
       {% endif %}
     {% else %}
     <button class="buy-btn owned-btn">✅ Pieder</button>

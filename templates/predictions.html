@@ -185,6 +185,19 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
         <div class="lock-overlay">🔒</div>
         {% endif %}
 
+      <div class="ec-top">
+        <div style="flex:1;">
+            <div class="ec-title">{{ e.title }}</div>
+            <div class="ec-meta">
+                <span>📁 {{ e.category }}</span>
+                <span style="margin-left:10px;">⏰ {{ e.closes_at.strftime('%d.%m.%Y') if e.closes_at else '' }}</span>
+            </div>
+        </div>
+        <div class="ec-badges">
+            <span class="badge badge-{{ e.status }}">{{ e.status }}</span>
+        </div>
+      </div>
+
       {% if e.options %}
       {% set ns = namespace(total=0) %}
       {% for o in e.options %}{% set ns.total = ns.total + o.volume %}{% endfor %}
