@@ -229,9 +229,8 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
         <span>{{ e.total_bets }} likmes</span>
         {% if e.status == 'resolved' %}<span style="color:var(--gold)">✅ Uzvarēja: {{ e.outcome }}</span>{% endif %}
       </div>
-    </a>
     {% else %}
-    <div class="empty">Nav neviena notikuma vēl.</div>
+      <div class="empty">Nav neviena notikuma vēl.</div>
     {% endfor %}
   </div>
 </div>

@@ -65,76 +65,59 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
   {% set ns = namespace(last_cat='') %}
   {% for item in items %}
     {% if item.category != ns.last_cat %}
-      {% set ns.last_cat = item.category %}
-      <div class="section-title">
-        {% if item.category == 'card_skin' %}🃏 Kāršu Izskats
-        {% elif item.category == 'badge' %}🏅 Nozīmes
-        {% elif item.category == 'avatar_frame' %}🖼️ Avatāra Rāmji
-        {% else %}{{ item.category }}{% endif %}
-      </div>
-      <div class="grid" id="grid-{{ item.category }}">
-    {% endif %}
-    
-    <div id="skin-preview-box" style="
-      display:none; text-align:center; margin-bottom:20px;
-      background:#111118; border:1px solid #2a2a3a; border-radius:14px; padding:20px;
-    ">
-      <div style="color:#888;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">
-        Priekšskatījums
-      </div>
-      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-        <div class="card" style="width:60px;height:84px;font-size:1rem;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:700;">
-          <span>A</span><span>♠</span>
-        </div>
-        <div class="card red" style="width:60px;height:84px;font-size:1rem;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:700;">
-          <span>K</span><span>♥</span>
-        </div>
-        <div class="card back" style="width:60px;height:84px;font-size:1rem;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-          🂠
-        </div>
-      </div>
-    </div>
+      {% set ns = namespace(last_cat='') %}
+      {% for item in items %}
+        {% if item.category != ns.last_cat %}
+          {% if ns.last_cat != '' %}</div>{% endif %}
+          {% set ns.last_cat = item.category %}
+          <div class="section-title">
+            {% if item.category == 'card_skin' %}🃏 Kāršu Izskats
+            {% elif item.category == 'badge' %}🏅 Nozīmes
+            {% elif item.category == 'avatar_frame' %}🖼️ Avatāra Rāmji
+            {% else %}{{ item.category }}{% endif %}
+          </div>
+          <div class="grid">
+        {% endif %}
 
-    {% set is_owned = item.id in owned %}
-    <div class="item-card {{ 'owned' if is_owned else '' }}" id="card-{{ item.id }}">
-      {% if is_owned %}<div class="owned-badge">✓ Pieder</div>{% endif %}
-      <div class="item-preview {{ item.category }}">
-        {% if item.category == 'card_skin' %}🃏
-        {% elif item.category == 'badge' %}🏅
-        {% elif item.category == 'avatar_frame' %}🖼️
-        {% else %}✨{% endif %}
-      </div>
-      <div class="item-name">{{ item.name }}</div>
-      <div class="item-desc">{{ item.description }}</div>
-      <div class="item-price {% if item.price == 0 %}free{% endif %}">
-        {% if item.price == 0 %}BEZMAKSAS{% else %}💰 {{ item.price }} coins{% endif %}
-      </div>
-      {% if is_owned %}
-  {% set is_skin = item.category == 'card_skin' %}
-    {% if is_skin %}
-      {% if item.id == equipped_skin_id %}
-        <button class="buy-btn" id="btn-{{ item.id }}"
-            style="background:#1a3a1a;color:var(--green);border:1px solid var(--green);"
-            onclick="unequipSkin()">✨ Aktīvs — Noņemt</button>
-      {% else %}
-        <button class="buy-btn can-buy"
-            onclick="buyItem({{ item.id }}, this)">
-          🛒 Pirkt ({{ item.price }} coins)
-        </button>
-      {% endif %}
-    {% else %}
-    <button class="buy-btn owned-btn">✅ Pieder</button>
-    {% endif %}
-  {% elif item.price == 0 %}
-    </div>
+        {% set is_owned = item.id in owned %}
+        <div class="item-card {{ 'owned' if is_owned else '' }}" id="card-{{ item.id }}">
+          {% if is_owned %}<div class="owned-badge">✓ Pieder</div>{% endif %}
+          <div class="item-preview {{ item.category }}">
+            {% if item.category == 'card_skin' %}🃏
+            {% elif item.category == 'badge' %}🏅
+            {% elif item.category == 'avatar_frame' %}🖼️
+            {% else %}✨{% endif %}
+          </div>
+          <div class="item-name">{{ item.name }}</div>
+          <div class="item-desc">{{ item.description }}</div>
+          <div class="item-price {% if item.price == 0 %}free{% endif %}">
+            {% if item.price == 0 %}BEZMAKSAS{% else %}💰 {{ item.price }} coins{% endif %}
+          </div>
 
-    {# Close grid div after last item of each category #}
-    {% if loop.last or items[loop.index].category != item.category %}
-      </div>
-    {% endif %}
-  {% endfor %}
+          {% if is_owned %}
+            {% if item.category == 'card_skin' %}
+              {% if item.id == equipped_skin_id %}
+                <button class="buy-btn"
+                    style="background:#1a3a1a;color:var(--green);border:1px solid var(--green);width:100%;padding:10px;border-radius:10px;cursor:pointer;font-family:'Rajdhani',sans-serif;font-weight:700;"
+                    onclick="unequipSkin()">✨ Aktīvs — Noņemt</button>
+              {% else %}
+                <button class="buy-btn can-buy" data-cid="{{ item.id }}"
+                    onclick="equipSkin({{ item.id }}, this)">⚡ Lietot</button>
+              {% endif %}
+            {% else %}
+              <button class="buy-btn owned-btn">✅ Pieder</button>
+            {% endif %}
+          {% else %}
+            <button class="buy-btn {{ 'can-buy' if balance >= item.price else 'cant-buy' }}"
+                onclick="buyItem({{ item.id }}, this)"
+                {{ 'disabled' if balance < item.price else '' }}>
+              {% if item.price == 0 %}🛒 Iegūt{% else %}🛒 Pirkt ({{ item.price }} coins){% endif %}
+            </button>
+          {% endif %}
+        </div>
 
-  {% if not items %}
+      {% endfor %}
+      {% if items %}</div>{% endif %}
   <div style="text-align:center;color:#333;padding:60px">Nav preču.</div>
   {% endif %}
 </div>

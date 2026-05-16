@@ -1831,29 +1831,12 @@ def api_admin_tournament_activate(tid):
     return jsonify({'ok': True})
 
 def _start_tournament_scheduler():
-    """
-    Runs every 30 s. Activates tournaments whose start_time has passed,
-    resolves those whose end_time has passed.
-    """
     def loop():
         while True:
             socketio.sleep(30)
             try:
-                conn = get_db_connection()  # MUST be first
+                conn = get_db_connection()
                 cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-                from datetime import date
-                today_d = date.today()
-                # Snapshot on the first day of each quarter
-                if today_d.day == 1 and today_d.month in (1, 4, 7, 10):
-                    quarter = f"{today_d.year}-Q{(today_d.month - 1)//3 + 1}"
-                    try:
-                        conn_s = get_db_connection()
-                        _snapshot_season(conn_s, quarter)
-                        conn_s.close()
-                        app.logger.info(f'[season] snapshot taken for {quarter}')
-                    except Exception as e:
-                        app.logger.error(f'[season] snapshot error: {e}')
 
                 from datetime import date, timedelta
                 today_d = date.today()
@@ -1901,6 +1884,7 @@ def _start_tournament_scheduler():
 
             except Exception as e:
                 app.logger.error(f'[tournament scheduler] {e}')
+
     socketio.start_background_task(loop)
 
 def _resolve_tournament(conn, tid: int):
@@ -2704,8 +2688,7 @@ def api_slots():
     conn.commit()
 
     if winnings >= _FEED_MIN_WIN:
-        _post_feed(user_id, 'jackpot' if jackpot_hit else 'big_win',
-                   'slots', winnings, message=result)
+        _post_feed(user_id, 'jackpot', 'slots', winnings, message=result)
 
     cur.close()
     conn.close()
