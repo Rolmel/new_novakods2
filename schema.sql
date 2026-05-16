@@ -4,9 +4,8 @@
 -- ============================================================
 -- UPDATE users SET referral_code = encode(gen_random_bytes(4), 'hex') WHERE referral_code IS NULL;
 
-ALTER TABLE prediction_events
-    ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS featured_until TIMESTAMPTZ;
+
+
 
 CREATE TABLE IF NOT EXISTS highroller_sessions (
     user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

@@ -58,6 +58,27 @@ def get_tier_badge(tier: str) -> dict:
     return TIER_BADGES.get(tier, TIER_BADGES['unranked'])
 
 app = Flask(__name__)
+
+
+
+import re
+
+def strip_emoji(text):
+    emoji_pattern = re.compile(
+        "[\U00010000-\U0010ffff"
+        "\U0001F600-\U0001F64F"
+        "\U0001F300-\U0001F5FF"
+        "\U0001F680-\U0001F9FF"
+        "\u2600-\u26FF\u2700-\u27BF"
+        "\u23E9-\u23F3\u23F8-\u23FA"
+        "\u200d\ufe0f\u20e3]+",
+        flags=re.UNICODE
+    )
+    return emoji_pattern.sub('', text).strip()
+
+app.jinja_env.filters['strip_emoji'] = strip_emoji
+
+
 socketio = SocketIO(app, cors_allowed_origins=os.environ.get('ALLOWED_ORIGIN', 'http://localhost:5000'))
 _secret = os.environ.get('SECRET_KEY')
 if not _secret:
@@ -3790,15 +3811,15 @@ def _profile_stats(conn, user_id):
 
     cur.close()
     return {
-        "total_games":    casino_row["total_games"]    if casino_row else 0,
-        "total_won":      ledger_row["total_won"]      if ledger_row else 0,
-        "total_lost":     ledger_row["total_lost"]     if ledger_row else 0,
-        "best_win":       casino_row["best_win"]       if casino_row else 0,
+        "total_games":    int(casino_row["total_games"])    if casino_row else 0,
+        "total_won":      float(ledger_row["total_won"])    if ledger_row else 0,
+        "total_lost":     float(ledger_row["total_lost"])   if ledger_row else 0,
+        "best_win":       float(casino_row["best_win"])     if casino_row else 0,
         "casino_balance": float(casino_balance_row["balance"]) if casino_balance_row else 0,
         "recent_games":   [dict(r) for r in recent_games],
-        "pixel_count":    pixel_row["count"] if pixel_row else 0,
-        "file_count":     file_row["n"]      if file_row  else 0,
-        "message_count":  msg_row["n"]       if msg_row   else 0,
+        "pixel_count":    int(pixel_row["count"]) if pixel_row else 0,
+        "file_count":     int(file_row["n"])      if file_row  else 0,
+        "message_count":  int(msg_row["n"])       if msg_row   else 0,
     }
 
 @app.route('/u/<username>')
@@ -3822,6 +3843,11 @@ def profile_page(username):
         cur.execute("SELECT name FROM cosmetics WHERE id = %s", (profile['equipped_skin'],))
         skin_row = cur.fetchone()
         equipped_skin_name = skin_row['name'] if skin_row else None
+
+    profile = _get_profile(conn, owner['id'])
+    if profile is None:
+        profile = {}
+    profile_dict = dict(profile)
 
     cur.close()
     conn.close()
@@ -5553,8 +5579,8 @@ def api_social_feed():
 
 if __name__ == '__main__':
     init_db()
-    _HOLDEM_TABLES.update(_init_holdem_tables())
     init_redis()
+    _HOLDEM_TABLES.update(_init_holdem_tables())
     _start_crash_loop()
     _start_tournament_scheduler()          # ← add this
     _HOLDEM_TABLES.update(_init_holdem_tables())

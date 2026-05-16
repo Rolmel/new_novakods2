@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}NovaKods{% endblock %}</title>
+<title>{{ self.title() | strip_emoji }}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;600;700&family=Rajdhani:wght@400;600;700&family=Cinzel+Decorative:wght@700&display=swap" rel="stylesheet">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;600;700&family=Rajdhani:wght@400;600;700&family=Cinzel+Decorative:wght@700&display=swap" rel="stylesheet">
@@ -35,10 +35,10 @@
 
     <div style="margin-left:auto; display:flex; align-items:center; gap:16px; white-space:nowrap; font-family:'Rajdhani',sans-serif; font-size:1rem;">
       {% if session.user_id %}
-        <a href="/casino" style="color:#f5c842; text-decoration:none;">🎰 Casino</a>
-        <a href="/predictions" style="color:#e0e0e0; text-decoration:none;">📈 Prognozes</a>
-        <a href="/clubs" style="color:#e0e0e0; text-decoration:none;">🏛️ Klubi</a>
-        <a href="/duels" style="color:#e0e0e0; text-decoration:none;">⚔️ Dueļi</a>
+        <a href="/casino" style="color:#f5c842; text-decoration:none;">Casino</a>
+        <a href="/predictions" style="color:#e0e0e0; text-decoration:none;">Prognozes</a>
+        <a href="/clubs" style="color:#e0e0e0; text-decoration:none;">Klubi</a>
+        <a href="/duels" style="color:#e0e0e0; text-decoration:none;">Dueļi</a>
         <a href="/profile" style="color:#e0e0e0; text-decoration:none; font-weight:600;">{{ session.user_name }}</a>
         <a href="/logout" style="color:#888; text-decoration:none;">Iziet</a>
       {% else %}
