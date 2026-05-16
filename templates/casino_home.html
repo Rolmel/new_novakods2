@@ -258,37 +258,6 @@ async function loadFeed() {
 }
 loadFeed();
 setInterval(loadFeed, 15000);
-
-
-
-
-// Add inside the setTimeout after clearInterval(interval):
-if (data.jackpot_hit) {
-  const modal = document.createElement('div');
-  modal.style.cssText = `
-    position:fixed;inset:0;background:rgba(0,0,0,.88);
-    display:flex;align-items:center;justify-content:center;
-    z-index:999;flex-direction:column;gap:16px;
-    font-family:'Cinzel Decorative',serif;
-  `;
-  modal.innerHTML = `
-    <div style="font-size:3rem;animation:none;">💎💎💎</div>
-    <div style="font-size:2rem;color:#f5c842;">MEGA JACKPOT!</div>
-    <div style="color:#00e676;font-size:1.4rem;">+${data.winnings.toFixed(0)} coins!</div>
-    <button onclick="this.closest('[style]').remove()"
-      style="padding:12px 28px;background:#f5c842;border:none;
-             border-radius:10px;font-weight:700;cursor:pointer;
-             font-family:'Rajdhani',sans-serif;font-size:1rem;color:#000">
-      Aizvērt
-    </button>`;
-  document.body.appendChild(modal);
-}
-
-// Update jackpot pool display if element exists
-if (data.jackpot_pool) {
-  const jp = document.getElementById('jp-amount');
-  if (jp) jp.textContent = data.jackpot_pool.toFixed(0) + ' coins';
-}
 </script>
 
 {% if history %}

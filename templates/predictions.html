@@ -165,8 +165,10 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
 
   <div class="events-grid" id="events-grid">
     {% for e in events %}
+      {% for e in events %}
       <a class="event-card {{ e.status }} {{ 'locked-card' if e.locked else '' }}"
-        style="{{ 'border-color:#f5c842;margin-top:12px;' if e.is_featured else '' }}"
+        href="{{ e.url }}"
+        {% if e.locked %}onclick="showTierNag('{{ e.min_tier }}'); return false;"{% endif %}>
 
         {% if e.min_tier != 'unranked' %}
         <div class="tier-badge tier-{{ e.min_tier }}">

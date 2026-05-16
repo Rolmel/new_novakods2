@@ -256,11 +256,11 @@ def register():
         try:
             cur = conn.cursor()
             cur.execute(
-                "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
+                "INSERT INTO users (username, password_hash) VALUES (%s, %s) RETURNING id",
                 (username, hash_pw)
             )
+            new_user_id = cur.fetchone()[0]
             conn.commit()
-
             pending_ref = session.pop('pending_referral', None)
             if pending_ref:
                 _process_referral(conn, new_user_id, pending_ref)
@@ -575,9 +575,7 @@ def _progress_mission(conn, user_id: int, slug: str, amount: int = 1) -> list[st
 @app.route('/api/referral/stats')
 @login_required
 def api_referral_stats():
-    user_id = session['user_id']
-    conn = get_db_connection()
-    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    ...
     cur.execute("""
         SELECT COUNT(*) AS total,
                SUM(CASE WHEN bonus_paid THEN 1 ELSE 0 END) AS paid
@@ -587,7 +585,8 @@ def api_referral_stats():
     cur.execute(
         "SELECT referral_code FROM users WHERE id = %s", (user_id,)
     )
-    stats['code'] = cur.fetchone()['referral_code']
+    row = cur.fetchone()
+    stats['code'] = row['referral_code'] if row else None
     cur.close()
     conn.close()
     return jsonify(stats)
@@ -2759,7 +2758,7 @@ def api_bj_hit():
 def api_bj_stand():
     result = bj_stand(app, session, request)
     conn = get_db_connection()
-    _papirogress_mission(conn, session['user_id'], 'play_blackjack')
+    _progress_mission(conn, session['user_id'], 'play_blackjack')
     _progress_mission(conn, session['user_id'], 'casino_any')
     conn.close()
     return result
@@ -3181,6 +3180,10 @@ def _init_holdem_tables():
     # import deferred so init_redis() has already run
     return holdem_load_all_tables(_new_holdem_table)
 
+def _ensure_holdem_tables():
+    if not _HOLDEM_TABLES:
+        _HOLDEM_TABLES.update(_init_holdem_tables())
+
 _HOLDEM_TABLES = {}   # filled in after Redis is ready
 
 def _feed(table_id, type_, name='', detail='', amount=None):
@@ -3504,12 +3507,13 @@ def holdem_on_connect():
 
 @socketio.on('disconnect')
 def holdem_on_disconnect():
-    if 'user_id' in session:
+    if 'user_id' in session and _HOLDEM_TABLES:
         with _HOLDEM_LOCK:
             _holdem_remove_player(session['user_id'])
 
 @socketio.on('holdem_get_tables')
 def holdem_get_tables():
+    _ensure_holdem_tables()   
     info = []
     for tid, t in _HOLDEM_TABLES.items():
         info.append({
@@ -3700,6 +3704,7 @@ def holdem_action(data):
 @app.route('/casino/holdem')
 @login_required
 def casino_holdem_page():
+    _ensure_holdem_tables()          # ← add this line
     user_id = session['user_id']
     conn    = get_db_connection()
     balance = get_or_create_balance(conn, user_id)
@@ -4431,8 +4436,11 @@ def predictions_list():
             options_by_event.setdefault(o['event_id'], []).append(dict(o))
     user_tier = _get_user_tier(conn, session['user_id'])
 
+    # In predictions_list route, already building events list:
     for e in events:
+        e['options'] = options_by_event.get(e['id'], [])
         e['locked'] = not _tier_gte(user_tier, e.get('min_tier', 'unranked'))
+        e['url'] = f"/predictions/{e['id']}" if not e['locked'] else 'javascript:void(0)'
 
     balance = get_or_create_balance(conn, session['user_id'])
     cur.close()
@@ -4444,133 +4452,6 @@ def predictions_list():
                            is_admin=session.get('is_admin', False),
                            user_tier=user_tier,
                            tier_rank=TIER_RANK)
-
-
-@app.route('/predictions/<int:event_id>')
-@login_required
-def prediction_detail(event_id):
-    conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    cur.execute("SELECT * FROM prediction_events WHERE id = %s", (event_id,))
-    event = cur.fetchone()
-    if not event:
-        flash('Notikums nav atrasts.', 'error')
-        conn.close()
-        return redirect(url_for('predictions_list'))
-
-    cur.execute("""
-        SELECT po.*,
-               COALESCE(pv.total_stake,  0) AS volume,
-               COALESCE(pv.backer_count, 0) AS backers
-        FROM prediction_options po
-        LEFT JOIN prediction_volume pv ON pv.option_id = po.id
-        WHERE po.event_id = %s
-        ORDER BY po.id
-    """, (event_id,))
-    options = cur.fetchall()
-
-    cur.execute("""
-        SELECT p.*, po.label AS option_label
-        FROM predictions p
-        JOIN prediction_options po ON po.id = p.option_id
-        WHERE p.event_id = %s AND p.user_id = %s
-    """, (event_id, session['user_id']))
-    my_position = cur.fetchone()
-
-    cur.execute("""
-        SELECT u.username, p.stake, po.label, p.created_at
-        FROM predictions p
-        JOIN users u              ON u.id  = p.user_id
-        JOIN prediction_options po ON po.id = p.option_id
-        WHERE p.event_id = %s
-        ORDER BY p.created_at DESC LIMIT 20
-    """, (event_id,))
-    recent_bets = cur.fetchall()
-
-    balance = get_or_create_balance(conn, session['user_id'])
-    cur.close()
-    conn.close()
-    return render_template('prediction_detailed.html',
-                           event=dict(event),
-                           options=[dict(o) for o in options],
-                           my_position=dict(my_position) if my_position else None,
-                           recent_bets=[dict(b) for b in recent_bets],
-                           balance=balance,
-                           is_admin=session.get('is_admin', False))
-
-
-@app.route('/api/predictions/create', methods=['POST'])
-@login_required
-def api_prediction_create():
-    user_id = session['user_id']
-    conn    = get_db_connection()
-    tier    = _get_user_tier(conn, user_id)
-    is_admin = session.get('is_admin', False)
-
-    # Must be expert+ or admin
-    if not is_admin and not _tier_gte(tier, 'expert'):
-        conn.close()
-        return jsonify({
-            'error': 'Vajadzīgs Expert līmenis vai augstāks'
-        }), 403
-
-    data        = request.json or {}
-    title       = data.get('title', '').strip()[:200]
-    description = data.get('description', '').strip()
-    category    = data.get('category', 'general')
-    closes_at   = data.get('closes_at')
-    options     = data.get('options', [])
-    min_tier    = data.get('min_tier', 'unranked')
-
-    # Experts can only create markets accessible to everyone or bronze+
-    # Oracles can gate up to gold
-    # Admins can gate to any tier
-    allowed_min_tiers = {
-        'expert': ['unranked', 'bronze', 'silver'],
-        'oracle': ['unranked', 'bronze', 'silver', 'gold'],
-    }
-    if not is_admin:
-        allowed = allowed_min_tiers.get(tier, ['unranked'])
-        if min_tier not in allowed:
-            min_tier = 'unranked'
-
-    if not title or not closes_at or len(options) < 2:
-        conn.close()
-        return jsonify({
-            'error': 'Nepieciešams nosaukums, datums un vismaz 2 opcijas'
-        }), 400
-
-    options = [o.strip()[:100] for o in options if o.strip()]
-
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO prediction_events
-                (title, description, category, created_by, closes_at,
-                 min_tier, creator_tier)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (title, description, category, user_id,
-              closes_at, min_tier, tier))
-        event_id = cur.fetchone()[0]
-
-        equal_price = round(1.0 / len(options), 4)
-        for label in options:
-            cur.execute("""
-                INSERT INTO prediction_options (event_id, label, price)
-                VALUES (%s, %s, %s)
-            """, (event_id, label, equal_price))
-
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({'ok': True, 'event_id': event_id})
-
-    except Exception as e:
-        conn.rollback()
-        conn.close()
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/predictions/<int:event_id>/bet', methods=['POST'])
@@ -4585,87 +4466,67 @@ def api_prediction_bet(event_id):
         return jsonify({'error': 'Likmei jābūt lielākai par 0'}), 400
 
     conn = get_db_connection()
-    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cur.execute("SELECT * FROM prediction_events WHERE id = %s", (event_id,))
-    event = cur.fetchone()
-    if not event or event['status'] != 'open':
+        cur.execute("SELECT * FROM prediction_events WHERE id = %s", (event_id,))
+        event = cur.fetchone()
+        if not event or event['status'] != 'open':
+            return jsonify({'error': 'Notikums nav pieejams likmēm'}), 400
+
+        user_tier = _get_user_tier(conn, user_id)
+        if not _tier_gte(user_tier, event['min_tier']):
+            return jsonify({'error': f'Prasa {event["min_tier"]} līmeni'}), 403
+
+        cur.execute("SELECT * FROM prediction_options WHERE id = %s AND event_id = %s",
+                    (option_id, event_id))
+        option = cur.fetchone()
+        if not option:
+            return jsonify({'error': 'Nepareiza opcija'}), 400
+
+        cur.execute("SELECT id FROM predictions WHERE user_id = %s AND event_id = %s",
+                    (user_id, event_id))
+        if cur.fetchone():
+            return jsonify({'error': 'Tu jau esi likuši likmi šim notikumam'}), 400
+
+        balance = get_or_create_balance(conn, user_id)
+        if stake > balance:
+            return jsonify({'error': 'Nepietiek naudas'}), 400
+
+        balance -= stake
+        cur2 = conn.cursor()
+        cur2.execute("UPDATE wallets SET balance = %s WHERE user_id = %s",
+                     (round(balance, 2), user_id))
+        cur2.execute("""INSERT INTO predictions (user_id, event_id, option_id, stake, price_at_entry)
+                        VALUES (%s, %s, %s, %s, %s)""",
+                     (user_id, event_id, option_id, round(stake), round(float(option['price']), 4)))
+        cur2.execute("""INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+                        VALUES (%s, %s, %s, %s, %s)""",
+                     (user_id, -round(stake), 'prediction:bet', str(event_id), round(balance, 2)))
+        conn.commit()
+
+        _update_option_prices(conn, event_id)
+        conn.commit()
+
+        cur.execute("""SELECT po.id, po.label, po.price,
+                              COALESCE(pv.total_stake, 0) AS volume,
+                              COALESCE(pv.backer_count, 0) AS backers
+                       FROM prediction_options po
+                       LEFT JOIN prediction_volume pv ON pv.option_id = po.id
+                       WHERE po.event_id = %s ORDER BY po.id""", (event_id,))
+        updated_options = [dict(o) for o in cur.fetchall()]
+
+        socketio.emit('prediction_price_update',
+                      {'event_id': event_id, 'options': updated_options},
+                      room=f'prediction_{event_id}')
+
+        return jsonify({'ok': True, 'balance': round(balance, 2), 'options': updated_options})
+
+    finally:
         conn.close()
-        return jsonify({'error': 'Notikums nav pieejams likmēm'}), 400
-
-    # Tier gate
-    user_tier = _get_user_tier(conn, user_id)
-    if not _tier_gte(user_tier, event['min_tier']):
-        conn.close()
-        return jsonify({
-            'error': f'Šis tirgus prasa {event["min_tier"]} līmeni. '
-                     f'Tavs līmenis: {user_tier}'
-        }), 403
-
-    cur.execute("""
-        SELECT * FROM prediction_options WHERE id = %s AND event_id = %s
-    """, (option_id, event_id))
-    option = cur.fetchone()
-    if not option:
-        conn.close()
-        return jsonify({'error': 'Nepareiza opcija'}), 400
-
-    cur.execute("""
-        SELECT id FROM predictions WHERE user_id = %s AND event_id = %s
-    """, (user_id, event_id))
-    if cur.fetchone():
-        conn.close()
-        return jsonify({'error': 'Tu jau esi likuši likmi šim notikumam'}), 400
-
-    balance = get_or_create_balance(conn, user_id)
-    if stake > balance:
-        conn.close()
-        return jsonify({'error': 'Nepietiek naudas'}), 400
-
-    balance -= stake
-    cur2 = conn.cursor()
-    cur2.execute(
-        "UPDATE wallets SET balance = %s WHERE user_id = %s",
-        (round(balance, 2), user_id)
-    )
-    cur2.execute("""
-        INSERT INTO predictions (user_id, event_id, option_id, stake, price_at_entry)
-        VALUES (%s, %s, %s, %s, %s)
-    """, (user_id, event_id, option_id, round(stake), round(float(option['price']), 4)))
-    cur2.execute("""
-        INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
-        VALUES (%s, %s, %s, %s, %s)
-    """, (user_id, -round(stake), 'prediction:bet', str(event_id), round(balance, 2)))
-
-    conn.commit()
-
-    _update_option_prices(conn, event_id)
-    conn.commit()
-
-    cur.execute("""
-        SELECT po.id, po.label, po.price,
-               COALESCE(pv.total_stake, 0)  AS volume,
-               COALESCE(pv.backer_count, 0) AS backers
-        FROM prediction_options po
-        LEFT JOIN prediction_volume pv ON pv.option_id = po.id
-        WHERE po.event_id = %s
-        ORDER BY po.id
-    """, (event_id,))
-    updated_options = [dict(o) for o in cur.fetchall()]
-
-    cur.close()
-    cur2.close()
-    conn.close()
-
-    socketio.emit('prediction_price_update', {
-        'event_id': event_id,
-        'options':  updated_options
-    }, room=f'prediction_{event_id}')
-    conn3 = get_db_connection()
-    _progress_mission(conn3, user_id, 'place_prediction')
-    conn3.close()
-
-    return jsonify({'ok': True, 'balance': round(balance, 2), 'options': updated_options})
+        conn2 = get_db_connection()
+        _progress_mission(conn2, user_id, 'place_prediction')
+        conn2.close()
 
 
 @app.route('/api/predictions/<int:event_id>/resolve', methods=['POST'])
@@ -5709,6 +5570,7 @@ def api_social_feed():
 
 if __name__ == '__main__':
     init_db()
+    _HOLDEM_TABLES.update(_init_holdem_tables())
     init_redis()
     _start_crash_loop()
     _start_tournament_scheduler()          # ← add this
