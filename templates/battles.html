@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+{% block title %}⚔️ 1v1 Kaujas{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rajdhani:wght@400;600;700&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; --blue:#2196f3; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:860px; margin:0 auto; padding:24px 20px; }
+h1 {
+  font-family:'Bebas Neue',serif; font-size:3rem; color:var(--gold);
+  text-align:center; letter-spacing:4px;
+  text-shadow:0 0 40px #f5c84255;
+  margin-bottom:4px;
+}
+.tagline { text-align:center; color:#444; font-size:0.88rem; letter-spacing:2px;
+           text-transform:uppercase; margin-bottom:28px; }
+.balance-bar { text-align:center; color:var(--gold); font-size:1.1rem; margin-bottom:24px; font-weight:600; }
+
+/* Queue box */
+.queue-box {
+  background: linear-gradient(135deg, #0e0e18, #14142a);
+  border:2px solid var(--gold); border-radius:16px;
+  padding:28px; text-align:center; margin-bottom:24px;
+  position:relative; overflow:hidden;
+}
+.queue-box::before {
+  content:''; position:absolute; inset:0;
+  background:radial-gradient(ellipse at 50% 0%, #f5c84211, transparent 70%);
+  pointer-events:none;
+}
+.queue-title { font-family:'Bebas Neue',serif; font-size:1.6rem; color:var(--gold); letter-spacing:2px; margin-bottom:16px; }
+.stake-row { display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:16px; }
+.stake-row button {
+  width:36px; height:36px; background:#1a1a2e;
+  border:1px solid var(--gold); color:var(--gold);
+  border-radius:8px; font-size:1.2rem; cursor:pointer;
+}
+.join-btn {
+  width:100%; padding:16px; border:none; border-radius:12px;
+  font-family:'Bebas Neue',serif; font-size:1.4rem; letter-spacing:2px;
+  background:linear-gradient(135deg,#f5c842,#e6a800);
+  color:#000; cursor:pointer; transition:transform .1s;
+}
+.join-btn:hover { transform:translateY(-2px); }
+.join-btn:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+.leave-btn {
+  width:100%; padding:14px; border:1px solid #ff1744;
+  border-radius:12px; background:#1a0a0a; color:#ff4444;
+  font-family:'Bebas Neue',serif; font-size:1.2rem;
+  cursor:pointer; letter-spacing:2px;
+}
+.waiting-pulse {
+  display:none; align-items:center; justify-content:center;
+  gap:10px; padding:14px; margin-bottom:10px;
+  background:#1a1a0a; border:1px solid #f5c84244; border-radius:10px;
+  color:var(--gold); font-weight:700;
+}
+.waiting-pulse .dot { width:10px; height:10px; border-radius:50%;
+  background:var(--gold); animation:wpulse 1.2s ease infinite; }
+.waiting-pulse .dot:nth-child(2) { animation-delay:.2s; }
+.waiting-pulse .dot:nth-child(3) { animation-delay:.4s; }
+@keyframes wpulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.3;transform:scale(.7)} }
+
+/* Queue list */
+.queue-list-box { background:#111118; border:1px solid #2a2a3a; border-radius:12px;
+                  padding:14px; margin-top:14px; }
+.queue-list-title { color:#555; font-size:0.72rem; text-transform:uppercase;
+                    letter-spacing:1px; margin-bottom:10px; }
+.queue-row { display:flex; justify-content:space-between; align-items:center;
+             padding:7px 0; border-bottom:1px solid #1a1a2e; font-size:0.85rem; }
+.queue-row:last-child { border:none; }
+
+/* Battle card */
+.battle-card {
+  background:#111118; border:1px solid #2a2a3a; border-radius:14px;
+  padding:20px; margin-bottom:14px; transition:border-color .2s;
+}
+.battle-card.active { border-color:var(--gold); }
+.battle-card.finished { opacity:.65; }
+.bc-top { display:flex; justify-content:space-between; align-items:center;
+          margin-bottom:14px; flex-wrap:wrap; gap:10px; }
+.bc-event { font-size:0.82rem; color:#666; margin-bottom:6px; }
+.bc-vs { display:flex; align-items:center; gap:12px; }
+.bc-player {
+  flex:1; background:#0a0a14; border:1px solid #2a2a3a;
+  border-radius:10px; padding:12px 16px; text-align:center; min-width:120px;
+}
+.bc-player.winner { border-color:var(--green); background:#00e67611; }
+.bc-player.loser  { border-color:var(--red);   background:#ff174411; }
+.bc-player.you    { border-color:var(--blue); }
+.bc-name  { font-weight:700; color:var(--gold); font-size:0.9rem; }
+.bc-choice { font-size:0.78rem; color:#888; margin-top:3px; }
+.vs-sep { font-family:'Bebas Neue',serif; font-size:1.4rem; color:#333; flex-shrink:0; }
+.bc-stake { font-family:'Bebas Neue',serif; font-size:1.1rem; color:var(--gold); }
+.status-pill { display:inline-block; padding:3px 12px; border-radius:20px; font-size:0.72rem; font-weight:700; }
+.s-picking  { background:#f5c84218; border:1px solid #f5c84244; color:var(--gold); }
+.s-active   { background:#2196f318; border:1px solid var(--blue); color:var(--blue); }
+.s-finished { background:#1a1a24;   border:1px solid #333;       color:#555; }
+
+/* Pick panel */
+.pick-panel { background:#0a0a14; border:1px solid #2a2a3a; border-radius:10px;
+              padding:14px; margin-top:12px; }
+.pick-title { color:#888; font-size:0.78rem; text-transform:uppercase;
+              letter-spacing:1px; margin-bottom:10px; }
+.pick-options { display:flex; gap:8px; flex-wrap:wrap; }
+.pick-opt {
+  flex:1; min-width:100px; padding:10px 14px;
+  border:1px solid #333; background:#111118; border-radius:8px;
+  color:#aaa; cursor:pointer; text-align:center;
+  font-family:'Rajdhani',sans-serif; font-size:0.88rem; font-weight:600;
+  transition:all .15s;
+}
+.pick-opt:hover  { border-color:var(--gold); color:var(--gold); }
+.pick-opt.chosen { border-color:var(--green); background:#00e67615; color:var(--green); }
+.pick-btn {
+  margin-top:10px; width:100%; padding:10px;
+  background:linear-gradient(135deg,#f5c842,#e6a800);
+  border:none; border-radius:8px; font-family:'Bebas Neue',serif;
+  font-size:1.1rem; letter-spacing:1px; color:#000; cursor:pointer;
+}
+.pick-btn:disabled { opacity:.4; cursor:not-allowed; }
+
+.empty { text-align:center; color:#333; padding:40px; }
+.section-label { color:#444; font-size:0.7rem; text-transform:uppercase;
+                 letter-spacing:2px; margin:24px 0 12px; }
+</style>
+
+<div class="page">
+  <h1>⚔️ 1v1 KAUJAS</h1>
+  <p class="tagline">Izaicini nesvešinieku — labākā prognoze uzvar</p>
+  <div class="balance-bar">💰 <span id="balance">{{ "%.2f"|format(balance) }}</span> coins</div>
+
+  <!-- Queue box -->
+  <div class="queue-box">
+    <div class="queue-title">ATRAST PRETINIEKU</div>
+    <div class="stake-row">
+      <button onclick="changeStake(-25)">−</button>
+      <span style="font-family:'Bebas Neue',serif;font-size:1.4rem;letter-spacing:2px;color:var(--gold);">
+        LIKME: <span id="stake-val">50</span>
+      </span>
+      <button onclick="changeStake(25)">+</button>
+    </div>
+
+    <div class="waiting-pulse" id="waiting-anim">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <span>Meklē pretinieku...</span>
+    </div>
+
+    <button class="join-btn" id="join-btn" onclick="joinQueue()">⚔ IENĀKT RINDĀ</button>
+    <button class="leave-btn" id="leave-btn" style="display:none;margin-top:8px;" onclick="leaveQueue()">
+      ✕ PAMEST RINDU
+    </button>
+
+    <div class="queue-list-box" id="queue-list-box" style="display:none;">
+      <div class="queue-list-title">Gaida pretinieku (<span id="queue-count">0</span>)</div>
+      <div id="queue-rows"></div>
+    </div>
+  </div>
+
+  <!-- Active / recent battles -->
+  <div class="section-label">Tavi dueļi</div>
+  <div id="battles-list"><div class="empty">Nav aktīvu dueļu.</div></div>
+</div>
+
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<script>
+const ME   = {{ session.user_id }};
+const MYNAME = "{{ session.user_name }}";
+const socket = io({ transports: ['websocket', 'polling'] });
+let stake = 50;
+let inQueue = false;
+let selectedOption = {};  // battle_id -> option_id
+
+socket.on('connect', () => {
+  socket.emit('join_battle_watch');
+});
+
+socket.on('battle_matched', d => {
+  inQueue = false;
+  setQueueUI(false);
+  loadBattles();
+  // Flash a notification
+  const n = document.createElement('div');
+  n.style.cssText = `
+    position:fixed;top:20px;left:50%;transform:translateX(-50%);
+    background:#111118;border:2px solid #f5c842;border-radius:12px;
+    padding:16px 28px;z-index:9999;font-family:'Bebas Neue',serif;
+    font-size:1.3rem;letter-spacing:2px;color:#f5c842;
+    box-shadow:0 0 40px #f5c84244;
+  `;
+  n.textContent = '⚔️ PRETINIEKS ATRASTS!';
+  document.body.appendChild(n);
+  setTimeout(() => n.remove(), 3000);
+});
+
+socket.on('battle_active', () => loadBattles());
+socket.on('battle_result', () => {
+  loadBattles();
+  document.getElementById('balance').textContent =
+    (parseFloat(document.getElementById('balance').textContent)).toFixed(2);
+  setTimeout(() => location.reload(), 2000);
+});
+
+function changeStake(d) {
+  if (inQueue) return;
+  const bal = parseFloat(document.getElementById('balance').textContent) || 9999;
+  stake = Math.max(10, Math.min(bal, stake + d));
+  // Round to nearest 25
+  stake = Math.round(stake / 25) * 25 || 10;
+  document.getElementById('stake-val').textContent = stake;
+}
+
+function setQueueUI(waiting) {
+  inQueue = waiting;
+  document.getElementById('join-btn').style.display  = waiting ? 'none' : 'block';
+  document.getElementById('leave-btn').style.display = waiting ? 'block' : 'none';
+  document.getElementById('waiting-anim').style.display = waiting ? 'flex' : 'none';
+}
+
+async function joinQueue() {
+  const res  = await fetch('/api/battles/queue/join', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({stake})
+  });
+  const data = await res.json();
+  if (!data.ok) { alert(data.error); return; }
+  if (data.matched) {
+    loadBattles();
+  } else {
+    setQueueUI(true);
+    pollQueue();
+  }
+}
+
+async function leaveQueue() {
+  await fetch('/api/battles/queue/leave', { method:'POST' });
+  setQueueUI(false);
+  clearInterval(window._queuePoll);
+}
+
+let _queuePoll = null;
+function pollQueue() {
+  clearInterval(_queuePoll);
+  _queuePoll = setInterval(async () => {
+    if (!inQueue) { clearInterval(_queuePoll); return; }
+    // Re-try join in case opponent arrived
+    const res  = await fetch('/api/battles/queue/join', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({stake})
+    });
+    const data = await res.json();
+    if (data.matched) {
+      clearInterval(_queuePoll);
+      inQueue = false;
+      setQueueUI(false);
+      loadBattles();
+    }
+    loadQueueList();
+  }, 4000);
+  loadQueueList();
+}
+
+async function loadQueueList() {
+  const res  = await fetch('/api/battles/queue');
+  const data = await res.json();
+  const box  = document.getElementById('queue-list-box');
+  const rows = document.getElementById('queue-rows');
+  const cnt  = document.getElementById('queue-count');
+
+  if (!data.queue || !data.queue.length) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = 'block';
+  cnt.textContent = data.queue.length;
+  rows.innerHTML  = data.queue.map(q => `
+    <div class="queue-row">
+      <span style="color:#aaa">${q.username}</span>
+      <span style="color:var(--gold);font-family:'Bebas Neue',serif;letter-spacing:1px;">${q.stake} coins</span>
+    </div>
+  `).join('');
+}
+
+async function loadBattles() {
+  const res  = await fetch('/api/battles/mine');
+  const data = await res.json();
+  const box  = document.getElementById('battles-list');
+
+  if (!data.battles || !data.battles.length) {
+    box.innerHTML = '<div class="empty">Nav aktīvu dueļu.</div>';
+    return;
+  }
+
+  box.innerHTML = data.battles.map(b => buildBattleCard(b)).join('');
+}
+
+function buildBattleCard(b) {
+  const isP1     = b.player1_id === ME;
+  const myName   = isP1 ? b.p1_name : b.p2_name;
+  const oppName  = isP1 ? b.p2_name : b.p1_name;
+  const myOpt    = isP1 ? b.p1_option_label : b.p2_option_label;
+  const oppOpt   = isP1 ? b.p2_option_label : b.p1_option_label;
+  const myWon    = b.winner_id === ME;
+  const oppWon   = b.winner_id && b.winner_id !== ME;
+
+  const sMap = {
+    picking:  '<span class="status-pill s-picking">⏳ Izvēlas</span>',
+    active:   '<span class="status-pill s-active">🔵 Aktīvs</span>',
+    finished: myWon
+      ? '<span class="status-pill" style="background:#00e67618;border:1px solid var(--green);color:var(--green)">🏆 Uzvarēts</span>'
+      : '<span class="status-pill s-finished">💀 Zaudēts</span>',
+  };
+
+  const myPickLabel  = myOpt  || '⏳ Gaida...';
+  const oppPickLabel = oppOpt || '⏳ Gaida...';
+
+  let pickHtml = '';
+  if (b.status === 'picking' && !myOpt && b.options) {
+    const opts = (b.options || []).map(o => `
+      <div class="pick-opt ${selectedOption[b.id] === o.id ? 'chosen' : ''}"
+           onclick="selectOption(${b.id}, ${o.id}, this)">
+        ${o.label}
+      </div>
+    `).join('');
+    pickHtml = `
+      <div class="pick-panel">
+        <div class="pick-title">Izvēlies savu pusi:</div>
+        <div class="pick-options">${opts}</div>
+        <button class="pick-btn" id="pickbtn-${b.id}"
+                onclick="submitPick(${b.id})" disabled>APSTIPRINĀT</button>
+      </div>`;
+  }
+
+  return `
+    <div class="battle-card ${b.status}" id="bc-${b.id}">
+      <div class="bc-top">
+        <div>
+          <div class="bc-event">📈 ${b.event_title}</div>
+          <div class="bc-vs">
+            <div class="bc-player you ${b.status === 'finished' ? (myWon ? 'winner' : 'loser') : ''}">
+              <div class="bc-name">⭐ ${myName}</div>
+              <div class="bc-choice">${myPickLabel}</div>
+            </div>
+            <div class="vs-sep">VS</div>
+            <div class="bc-player ${b.status === 'finished' ? (oppWon ? 'winner' : 'loser') : ''}">
+              <div class="bc-name">${oppName}</div>
+              <div class="bc-choice">${oppPickLabel}</div>
+            </div>
+          </div>
+        </div>
+        <div style="text-align:right;display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+          <div class="bc-stake">⚔️ ${b.stake * 2} coins</div>
+          ${sMap[b.status] || ''}
+        </div>
+      </div>
+      ${pickHtml}
+    </div>`;
+}
+
+function selectOption(battleId, optionId, el) {
+  selectedOption[battleId] = optionId;
+  el.closest('.pick-options').querySelectorAll('.pick-opt').forEach(o =>
+    o.classList.remove('chosen')
+  );
+  el.classList.add('chosen');
+  document.getElementById(`pickbtn-${battleId}`).disabled = false;
+}
+
+async function submitPick(battleId) {
+  const optId = selectedOption[battleId];
+  if (!optId) return;
+  const btn = document.getElementById(`pickbtn-${battleId}`);
+  btn.disabled = true; btn.textContent = '⏳';
+
+  const res  = await fetch(`/api/battles/${battleId}/pick`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({option_id: optId})
+  });
+  const data = await res.json();
+  if (data.ok) loadBattles();
+  else { btn.disabled = false; btn.textContent = 'APSTIPRINĀT'; alert(data.error); }
+}
+
+// Init
+loadBattles();
+setInterval(loadBattles, 8000);
+</script>
+{% endblock %}

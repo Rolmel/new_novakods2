@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}🏆 Līderu Saraksts{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rajdhani:wght@400;600;700&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; --blue:#2196f3; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:860px; margin:0 auto; padding:24px 20px; }
+
+h1 {
+  font-family:'Bebas Neue',serif; font-size:2.8rem; color:var(--gold);
+  text-align:center; letter-spacing:4px;
+  text-shadow:0 0 40px #f5c84244; margin-bottom:4px;
+}
+.sub { text-align:center; color:#444; font-size:0.78rem;
+       text-transform:uppercase; letter-spacing:2px; margin-bottom:28px; }
+
+/* My rank strip */
+.my-ranks {
+  display:grid; grid-template-columns:repeat(3,1fr); gap:12px;
+  margin-bottom:28px;
+}
+.rank-chip {
+  background:#111118; border:1px solid #2a2a3a; border-radius:12px;
+  padding:14px; text-align:center;
+}
+.rank-chip .val {
+  font-family:'Bebas Neue',serif; font-size:2rem; letter-spacing:2px;
+  color:var(--gold);
+}
+.rank-chip .lbl { font-size:0.7rem; color:#555; text-transform:uppercase; letter-spacing:1px; }
+
+/* Tabs */
+.tabs { display:flex; gap:4px; margin-bottom:20px; }
+.tab {
+  flex:1; padding:10px; border:1px solid #2a2a3a; border-radius:10px;
+  background:#111118; color:#666; cursor:pointer; text-align:center;
+  font-family:'Bebas Neue',serif; font-size:1rem; letter-spacing:1px;
+  transition:all .15s;
+}
+.tab.active { border-color:var(--gold); color:var(--gold); background:#1a1a0a; }
+.tab:hover  { color:#e0e0e0; }
+
+.tab-section { display:none; }
+.tab-section.active { display:block; }
+
+/* Table */
+.lb-table { width:100%; border-collapse:collapse; }
+.lb-table th {
+  color:#444; font-size:0.7rem; text-transform:uppercase;
+  letter-spacing:1px; padding:8px 12px;
+  border-bottom:1px solid #1a1a2e; text-align:left;
+}
+.lb-table td { padding:10px 12px; border-bottom:1px solid #111120; }
+.lb-table tr:hover td { background:#0a0a14; }
+.lb-table tr.me td { background:#1a1a08; }
+
+/* Rank medal */
+.rank-num { font-family:'Bebas Neue',serif; font-size:1.1rem; min-width:36px; }
+.rank-num.r1 { color:#f5c842; }
+.rank-num.r2 { color:#c0c0c0; }
+.rank-num.r3 { color:#cd7f32; }
+
+/* Player cell */
+.player-cell { display:flex; align-items:center; gap:10px; }
+.p-avatar {
+  width:34px; height:34px; border-radius:50%;
+  background:#1a1a2e; border:1px solid #2a2a3a;
+  display:flex; align-items:center; justify-content:center;
+  font-size:1rem; overflow:hidden; flex-shrink:0;
+}
+.p-avatar img { width:100%; height:100%; object-fit:cover; }
+.p-name { font-weight:700; font-size:0.9rem; }
+.p-name a { color:#e0e0e0; text-decoration:none; }
+.p-name a:hover { color:var(--gold); }
+.p-tier { font-size:0.68rem; color:#555; margin-top:1px; }
+
+/* Tier colors */
+.t-oracle  { color:#a855f7; }
+.t-expert  { color:#f5c842; }
+.t-gold    { color:#fbbf24; }
+.t-silver  { color:#c0c0c0; }
+.t-bronze  { color:#cd7f32; }
+
+/* Value cells */
+.pos { color:var(--green); font-weight:700; font-family:'Bebas Neue',serif; letter-spacing:1px; }
+.neg { color:var(--red);   font-weight:700; font-family:'Bebas Neue',serif; letter-spacing:1px; }
+.neu { color:#888; font-family:'Bebas Neue',serif; letter-spacing:1px; }
+
+/* Casino filter */
+.period-row { display:flex; gap:6px; margin-bottom:14px; }
+.period-btn {
+  padding:5px 14px; border-radius:20px; border:1px solid #2a2a3a;
+  background:#111118; color:#666; cursor:pointer; font-size:0.8rem;
+  font-family:'Rajdhani',sans-serif; transition:all .15s;
+}
+.period-btn.active { border-color:var(--gold); color:var(--gold); }
+
+.empty { text-align:center; color:#333; padding:40px; }
+</style>
+
+<div class="page">
+  <h1>🏆 LĪDERU SARAKSTS</h1>
+  <p class="sub">Globālie reitingi visās spēlēs</p>
+
+  <div class="my-ranks">
+    <div class="rank-chip">
+      <div class="val">{{ '#' ~ my_casino_rank if my_casino_rank else '—' }}</div>
+      <div class="lbl">🎰 Casino</div>
+    </div>
+    <div class="rank-chip">
+      <div class="val">{{ '#' ~ my_pred_rank if my_pred_rank else '—' }}</div>
+      <div class="lbl">📈 Prognozes</div>
+    </div>
+    <div class="rank-chip">
+      <div class="val">{{ '#' ~ my_battle_rank if my_battle_rank else '—' }}</div>
+      <div class="lbl">⚔️ Kaujas</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('casino',this)">🎰 Casino</div>
+    <div class="tab" onclick="switchTab('pred',this)">📈 Prognozes</div>
+    <div class="tab" onclick="switchTab('battles',this)">⚔️ Kaujas</div>
+  </div>
+
+  <!-- CASINO -->
+  <div class="tab-section active" id="tab-casino">
+    <div class="period-row">
+      <button class="period-btn active" onclick="setCasinoPeriod('total',this)">Visu laiku</button>
+      <button class="period-btn" onclick="setCasinoPeriod('week',this)">Šī nedēļa</button>
+      <button class="period-btn" onclick="setCasinoPeriod('today',this)">Šodien</button>
+    </div>
+    <table class="lb-table" id="casino-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Spēlētājs</th>
+          <th>Neto peļņa</th>
+          <th>Spēles</th>
+        </tr>
+      </thead>
+      <tbody id="casino-tbody">
+        {% for p in casino_lb %}
+        {% set rank = loop.index %}
+        <tr class="{{ 'me' if p.id == user_id else '' }}">
+          <td>
+            <span class="rank-num {{ 'r1' if rank==1 else 'r2' if rank==2 else 'r3' if rank==3 else '' }}">
+              {% if rank == 1 %}🥇
+              {% elif rank == 2 %}🥈
+              {% elif rank == 3 %}🥉
+              {% else %}{{ rank }}{% endif %}
+            </span>
+          </td>
+          <td>
+            <div class="player-cell">
+              <div class="p-avatar">
+                {% if p.avatar_path %}
+                  <img src="/static/uploads/avatars/{{ p.avatar_path }}" alt="">
+                {% else %}👤{% endif %}
+              </div>
+              <div>
+                <div class="p-name"><a href="/u/{{ p.username }}">{{ p.display_name }}</a></div>
+                <div class="p-tier t-{{ p.tier }}">{{ p.tier }}</div>
+              </div>
+            </div>
+          </td>
+          <td data-total="{{ p.net_total }}" data-week="{{ p.net_week }}" data-today="{{ p.net_today }}">
+            <span class="{{ 'pos' if p.net_total >= 0 else 'neg' }}">
+              {{ '%+d'|format(p.net_total|int) }}
+            </span>
+          </td>
+          <td class="neu">{{ p.total_games }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">Nav datu.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- PREDICTIONS -->
+  <div class="tab-section" id="tab-pred">
+    <table class="lb-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Spēlētājs</th>
+          <th>Uzvara%</th>
+          <th>Peļņa</th>
+          <th>Sērija🔥</th>
+          <th>Likmes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in pred_lb %}
+        {% set rank = loop.index %}
+        <tr class="{{ 'me' if p.id == user_id else '' }}">
+          <td>
+            <span class="rank-num {{ 'r1' if rank==1 else 'r2' if rank==2 else 'r3' if rank==3 else '' }}">
+              {% if rank == 1 %}🥇{% elif rank == 2 %}🥈{% elif rank == 3 %}🥉{% else %}{{ rank }}{% endif %}
+            </span>
+          </td>
+          <td>
+            <div class="player-cell">
+              <div class="p-avatar">
+                {% if p.avatar_path %}<img src="/static/uploads/avatars/{{ p.avatar_path }}" alt="">
+                {% else %}👤{% endif %}
+              </div>
+              <div>
+                <div class="p-name"><a href="/u/{{ p.username }}">{{ p.display_name }}</a></div>
+                <div class="p-tier t-{{ p.tier }}">{{ p.tier }}</div>
+              </div>
+            </div>
+          </td>
+          <td class="neu">{{ p.win_rate }}%</td>
+          <td>
+            <span class="{{ 'pos' if p.profit >= 0 else 'neg' }}">
+              {{ '%+d'|format(p.profit|int) }}
+            </span>
+          </td>
+          <td class="neu">{{ p.best_streak }}</td>
+          <td style="color:#555">{{ p.total_bets }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">Nav datu.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- BATTLES -->
+  <div class="tab-section" id="tab-battles">
+    <table class="lb-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Spēlētājs</th>
+          <th>Uzvaras</th>
+          <th>Zaudējumi</th>
+          <th>W/L%</th>
+          <th>Neto</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in battle_lb %}
+        {% set rank = loop.index %}
+        {% set wl = ((p.wins / p.total * 100) | round(0) | int) if p.total else 0 %}
+        <tr class="{{ 'me' if p.id == user_id else '' }}">
+          <td>
+            <span class="rank-num {{ 'r1' if rank==1 else 'r2' if rank==2 else 'r3' if rank==3 else '' }}">
+              {% if rank == 1 %}🥇{% elif rank == 2 %}🥈{% elif rank == 3 %}🥉{% else %}{{ rank }}{% endif %}
+            </span>
+          </td>
+          <td>
+            <div class="player-cell">
+              <div class="p-avatar">
+                {% if p.avatar_path %}<img src="/static/uploads/avatars/{{ p.avatar_path }}" alt="">
+                {% else %}👤{% endif %}
+              </div>
+              <div class="p-name"><a href="/u/{{ p.username }}">{{ p.display_name }}</a></div>
+            </div>
+          </td>
+          <td class="pos">{{ p.wins }}</td>
+          <td class="neg">{{ p.losses }}</td>
+          <td class="{{ 'pos' if wl >= 50 else 'neg' }}">{{ wl }}%</td>
+          <td>
+            <span class="{{ 'pos' if p.net >= 0 else 'neg' }}">
+              {{ '%+d'|format(p.net|int) }}
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">Nav datu.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
+
+function setCasinoPeriod(period, btn) {
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  document.querySelectorAll('#casino-tbody tr:not(.empty)').forEach(row => {
+    const td  = row.querySelector('td:nth-child(3)');
+    if (!td) return;
+    const val = parseInt(td.dataset[period] || 0);
+    td.querySelector('span').textContent = (val >= 0 ? '+' : '') + val;
+    td.querySelector('span').className   = val >= 0 ? 'pos' : 'neg';
+  });
+}
+</script>
+{% endblock %}

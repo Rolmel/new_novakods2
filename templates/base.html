@@ -15,98 +15,200 @@
 
 <body>
 <div class="container">
-  <nav style="display:flex; align-items:center; gap:16px; padding:12px 24px; background:#0a0a0f; border-bottom:1px solid #2a2a3a; position:sticky; top:0; z-index:500;">
 
-    <a href="/" style="font-family:'Cinzel Decorative',serif; color:#f5c842; font-size:1rem; text-decoration:none; white-space:nowrap; flex-shrink:0;">NovaKods</a>
+<nav style="display:flex; align-items:center; gap:12px; padding:12px 20px; background:#0a0a0f; border-bottom:1px solid #2a2a3a; position:sticky; top:0; z-index:500;">
 
-    <div id="nav-search-wrap" style="position:relative; flex:1; max-width:340px;">
-      <input id="nav-search"
-        placeholder="🔍 Meklēt spēlētāju..."
-        oninput="navSearch()"
-        onblur="setTimeout(()=>document.getElementById('nav-results').innerHTML='', 200)"
-        autocomplete="off"
-        style="width:100%; padding:9px 16px; background:#111118; border:1px solid #2a2a3a;
-              border-radius:20px; color:#e0e0e0; font-family:'Rajdhani',sans-serif;
-              font-size:0.92rem; outline:none; box-sizing:border-box;">
-      <div id="nav-results" style="position:fixed; background:#111118; border:1px solid #2a2a3a;
-         border-radius:12px; overflow:hidden; z-index:9999;
-         box-shadow:0 8px 30px rgba(0,0,0,0.7);"></div>
+  <a href="/" style="font-family:'Cinzel Decorative',serif; color:#f5c842; font-size:1rem; text-decoration:none; white-space:nowrap; flex-shrink:0;">NovaKods</a>
+
+  <div id="nav-search-wrap" style="position:relative; flex:1; max-width:300px; margin:0 8px;">
+    <input id="nav-search"
+      placeholder="🔍 Meklēt..."
+      oninput="navSearch()"
+      onblur="setTimeout(()=>document.getElementById('nav-results').innerHTML='', 200)"
+      autocomplete="off"
+      style="width:100%; padding:7px 14px; background:#111118; border:1px solid #2a2a3a;
+            border-radius:20px; color:#e0e0e0; font-family:'Rajdhani',sans-serif;
+            font-size:0.88rem; outline:none; box-sizing:border-box; transition:border-color .2s;">
+    <div id="nav-results" style="position:fixed; background:#111118; border:1px solid #2a2a3a;
+       border-radius:12px; overflow:hidden; z-index:9999;
+       box-shadow:0 8px 30px rgba(0,0,0,0.7);"></div>
+  </div>
+
+  <div style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+    {% if session.user_id %}
+    <!-- Notification bell -->
+    <div id="notif-wrap" style="position:relative; cursor:pointer; flex-shrink:0;" onclick="toggleNotifPanel()">
+      <span style="font-size:1.2rem; line-height:1;">🔔</span>
+      <span id="notif-dot" style="display:none; position:absolute; top:-2px; right:-3px;
+        width:8px; height:8px; border-radius:50%; background:#ff1744; border:2px solid #0a0a0f;"></span>
+      <div id="notif-panel" style="
+        display:none; position:fixed; top:52px; right:16px;
+        width:300px; background:#111118; border:1px solid #2a2a3a;
+        border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.7);
+        z-index:9999; max-height:340px; overflow-y:auto;
+        font-family:'Rajdhani',sans-serif;
+      "></div>
     </div>
+    {% endif %}
 
-    <div style="margin-left:auto; display:flex; align-items:center; gap:16px; white-space:nowrap; font-family:'Rajdhani',sans-serif; font-size:1rem;">
-      {% if session.user_id %}
-        <a href="/casino" style="color:#f5c842; text-decoration:none;">Casino</a>
-        <a href="/predictions" style="color:#e0e0e0; text-decoration:none;">Prognozes</a>
-        <a href="/clubs" style="color:#e0e0e0; text-decoration:none;">Klubi</a>
-        <a href="/duels" style="color:#e0e0e0; text-decoration:none;">Dueļi</a>
-        <a href="/profile" style="color:#e0e0e0; text-decoration:none; font-weight:600;">{{ session.user_name }}</a>
-        <a href="/logout" style="color:#888; text-decoration:none;">Iziet</a>
-      {% else %}
-        <a href="/login" style="color:#f5c842; text-decoration:none;">Ienākt</a>
-        <a href="/register" style="color:#e0e0e0; text-decoration:none;">Reģistrēties</a>
-      {% endif %}
-    </div>
-  </nav>
+    <!-- Burger button -->
+    <button id="burger-btn" onclick="toggleBurger()" style="
+      background:none; border:1px solid #2a2a3a; border-radius:8px;
+      color:#e0e0e0; cursor:pointer; padding:7px 10px;
+      display:flex; flex-direction:column; gap:4px; flex-shrink:0;
+      transition:border-color .2s;
+    " onmouseover="this.style.borderColor='#f5c842'" onmouseout="this.style.borderColor='#2a2a3a'">
+      <span id="b1" style="display:block; width:18px; height:2px; background:#e0e0e0; transition:all .25s; transform-origin:center;"></span>
+      <span id="b2" style="display:block; width:18px; height:2px; background:#e0e0e0; transition:all .25s;"></span>
+      <span id="b3" style="display:block; width:18px; height:2px; background:#e0e0e0; transition:all .25s; transform-origin:center;"></span>
+    </button>
+  </div>
+</nav>
 
-      <style>
-      #nav-search-wrap {
-          position:relative;
-          flex:1;
-          max-width:280px;
-          margin:0 16px;
-      }
-      #nav-search {
-          width:100%;
-          padding:7px 14px;
-          background:#111118;
-          border:1px solid #2a2a3a;
-          border-radius:20px;
-          color:#e0e0e0;
-          font-family:'Rajdhani',sans-serif;
-          font-size:0.88rem;
-          outline:none;
-          transition:border-color .2s;
-      }
-      #nav-search:focus { border-color:#f5c842; }
-      #nav-results {
-          position:absolute;
-          top:calc(100% + 6px);
-          left:0; right:0;
-          background:#111118;
-          border:1px solid #2a2a3a;
-          border-radius:12px;
-          overflow:hidden;
-          z-index:999;
-          box-shadow:0 8px 30px rgba(0,0,0,0.5);
-      }
-      .nav-result-item {
-          display:flex;
-          align-items:center;
-          gap:10px;
-          padding:10px 14px;
-          cursor:pointer;
-          transition:background .15s;
-          text-decoration:none;
-          color:#e0e0e0;
-          border-bottom:1px solid #1a1a2e;
-      }
-      .nav-result-item:last-child { border-bottom:none; }
-      .nav-result-item:hover { background:#1a1a2e; }
-      .nav-result-avatar {
-          width:32px; height:32px;
-          border-radius:50%;
-          background:#1a1a2e;
-          border:1px solid #2a2a3a;
-          display:flex; align-items:center; justify-content:center;
-          font-size:1rem; overflow:hidden; flex-shrink:0;
-      }
-      .nav-result-avatar img { width:100%; height:100%; object-fit:cover; }
-      .nav-result-name { font-weight:700; font-size:0.88rem; color:#f5c842; }
-      .nav-result-meta { font-size:0.75rem; color:#555; }
-      .nav-result-empty { padding:12px 14px; color:#555; font-size:0.85rem; text-align:center; }
-      </style>
+<!-- Dropdown menu -->
+<div id="burger-menu" style="
+  display:none; position:fixed; top:52px; right:16px;
+  background:#0f0f1a; border:1px solid #2a2a3a; border-radius:14px;
+  box-shadow:0 8px 40px rgba(0,0,0,.7); z-index:9998;
+  min-width:220px; overflow:hidden;
+  font-family:'Rajdhani',sans-serif;
+  animation:bmopen .15s ease;
+">
+  {% if session.user_id %}
+  <div style="padding:14px 18px; border-bottom:1px solid #1a1a2e; background:#111118;">
+    <div style="font-weight:700; color:#f5c842; font-size:0.95rem;">{{ session.user_name }}</div>
+    <div style="font-size:0.75rem; color:#555; margin-top:2px;" id="nav-balance-display">💰 ...</div>
+  </div>
+  <a href="/casino"       class="bm-item">♠️ Casino</a>
+  <a href="/predictions"  class="bm-item">📈 Prognozes</a>
+  <a href="/leaderboard"  class="bm-item">🏆 Reitingi</a>
+  <a href="/clubs"        class="bm-item">🏛️ Klubi</a>
+  <a href="/duels"        class="bm-item">⚔️ Dueļi</a>
+  <a href="/battles"      class="bm-item">🥊 Kaujas</a>
+  <a href="/tournaments"  class="bm-item">🎯 Turnīri</a>
+  <a href="/shop"         class="bm-item">🛍️ Veikals</a>
+  <a href="/profile"      class="bm-item">👤 Profils</a>
+  {% if session.is_admin %}
+  <a href="/admin"        class="bm-item" style="color:#ff6b6b;">⚙️ Admin</a>
+  {% endif %}
+  <div style="border-top:1px solid #1a1a2e; padding:4px 0;">
+    <a href="/logout" class="bm-item" style="color:#555;">🚪 Iziet</a>
+  </div>
+  {% else %}
+  <a href="/login"    class="bm-item" style="color:#f5c842;">Ienākt</a>
+  <a href="/register" class="bm-item">Reģistrēties</a>
+  {% endif %}
+</div>
+
+<style>
+@keyframes bmopen {
+  from { opacity:0; transform:translateY(-8px) scale(.97); }
+  to   { opacity:1; transform:none; }
+}
+.bm-item {
+  display:flex; align-items:center; gap:10px;
+  padding:11px 18px; color:#ccc; text-decoration:none;
+  font-size:0.95rem; font-weight:600;
+  border-bottom:1px solid #111120;
+  transition:background .12s, color .12s;
+}
+.bm-item:last-child { border-bottom:none; }
+.bm-item:hover { background:#1a1a2e; color:#f5c842; }
+
+#nav-search:focus { border-color:#f5c842; }
+#nav-results {
+  position:absolute; top:calc(100% + 6px); left:0; right:0;
+  background:#111118; border:1px solid #2a2a3a; border-radius:12px;
+  overflow:hidden; z-index:999; box-shadow:0 8px 30px rgba(0,0,0,.5);
+}
+</style>
 
 <script>
+let _burgerOpen = false;
+
+function toggleBurger() {
+  _burgerOpen = !_burgerOpen;
+  const menu = document.getElementById('burger-menu');
+  const b1   = document.getElementById('b1');
+  const b2   = document.getElementById('b2');
+  const b3   = document.getElementById('b3');
+  menu.style.display = _burgerOpen ? 'block' : 'none';
+
+  // Animate to X
+  if (_burgerOpen) {
+    b1.style.transform = 'translateY(6px) rotate(45deg)';
+    b2.style.opacity   = '0';
+    b3.style.transform = 'translateY(-6px) rotate(-45deg)';
+    // Load balance
+    fetch('/api/balance_quick').then(r => r.json()).then(d => {
+      const el = document.getElementById('nav-balance-display');
+      if (el && d.balance !== undefined) el.textContent = '💰 ' + d.balance + ' coins';
+    }).catch(() => {});
+  } else {
+    b1.style.transform = '';
+    b2.style.opacity   = '1';
+    b3.style.transform = '';
+  }
+}
+
+document.addEventListener('click', e => {
+  const menu = document.getElementById('burger-menu');
+  const btn  = document.getElementById('burger-btn');
+  if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
+    if (_burgerOpen) toggleBurger();
+  }
+});
+
+// Notification functions (unchanged logic, just moved here)
+let _notifOpen = false;
+async function loadNotifications() {
+  const res  = await fetch('/api/notifications');
+  const data = await res.json();
+  const panel = document.getElementById('notif-panel');
+  const dot   = document.getElementById('notif-dot');
+  if (!panel) return;
+  const unread = (data.notifications || []).filter(n => !n.is_read).length;
+  dot.style.display = unread > 0 ? 'block' : 'none';
+  if (!data.notifications || !data.notifications.length) {
+    panel.innerHTML = '<div style="padding:16px;color:#555;text-align:center;">Nav paziņojumu</div>';
+    return;
+  }
+  panel.innerHTML = data.notifications.map(n => `
+    <div style="padding:11px 16px; border-bottom:1px solid #1a1a2e;
+                font-size:0.82rem; color:${n.is_read ? '#555' : '#e0e0e0'};">
+      ${n.message}
+      <div style="font-size:0.7rem; color:#333; margin-top:2px;">
+        ${new Date(n.created_at).toLocaleString('lv-LV')}
+      </div>
+    </div>
+  `).join('');
+}
+function toggleNotifPanel() {
+  _notifOpen = !_notifOpen;
+  const panel = document.getElementById('notif-panel');
+  if (!panel) return;
+  panel.style.display = _notifOpen ? 'block' : 'none';
+  if (_notifOpen) loadNotifications();
+}
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('notif-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    _notifOpen = false;
+    const p = document.getElementById('notif-panel');
+    if (p) p.style.display = 'none';
+  }
+});
+{% if session.user_id %}
+setInterval(async () => {
+  const res  = await fetch('/api/notifications');
+  const data = await res.json();
+  const unread = (data.notifications || []).filter(n => !n.is_read).length;
+  const dot = document.getElementById('notif-dot');
+  if (dot) dot.style.display = unread > 0 ? 'block' : 'none';
+}, 30000);
+{% endif %}
+
+// Nav search (unchanged)
 let navSearchTimer = null;
 async function navSearch() {
   clearTimeout(navSearchTimer);
@@ -118,7 +220,6 @@ async function navSearch() {
     box.style.top   = (rect.bottom + 6) + 'px';
     box.style.left  = rect.left + 'px';
     box.style.width = rect.width + 'px';
-
     const res  = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
     const data = await res.json();
     if (!data.length) {
@@ -129,88 +230,18 @@ async function navSearch() {
     data.forEach(u => {
       const a = document.createElement('a');
       a.href = `/u/${u.username}`;
-      a.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;text-decoration:none;color:#e0e0e0;border-bottom:1px solid #1a1a2e;';
+      a.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;text-decoration:none;color:#e0e0e0;border-bottom:1px solid #1a1a2e;transition:background .12s;';
       a.onmouseover = () => a.style.background = '#1a1a2e';
       a.onmouseout  = () => a.style.background = '';
       const avatar = u.avatar_path
-        ? `<img src="/static/uploads/avatars/${u.avatar_path}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;">`
-        : '<div style="width:32px;height:32px;border-radius:50%;background:#1a1a2e;display:flex;align-items:center;justify-content:center;">👤</div>';
-      a.innerHTML = `${avatar}<div><div style="font-weight:700;font-size:0.88rem;color:#f5c842;">${u.username}</div><div style="font-size:0.75rem;color:#555;">🎰 ${u.total_games} spēles · 💰 ${u.balance} coins</div></div>`;
+        ? `<img src="/static/uploads/avatars/${u.avatar_path}" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">`
+        : '<div style="width:30px;height:30px;border-radius:50%;background:#1a1a2e;display:flex;align-items:center;justify-content:center;font-size:0.9rem;">👤</div>';
+      a.innerHTML = `${avatar}<div><div style="font-weight:700;font-size:0.85rem;color:#f5c842;">${u.username}</div><div style="font-size:0.72rem;color:#555;">🎰 ${u.total_games} spēles · 💰 ${Math.round(u.balance)} coins</div></div>`;
       box.appendChild(a);
     });
   }, 250);
 }
 </script>
-    </nav>
-    {% if session.user_id %}
-      <div id="notif-wrap" style="position:relative;cursor:pointer" onclick="toggleNotifPanel()">
-        <span style="font-size:1.3rem">🔔</span>
-        <span id="notif-dot" style="
-          display:none;position:absolute;top:-2px;right:-4px;
-          width:9px;height:9px;border-radius:50%;
-          background:#ff1744;border:2px solid var(--bg-main);
-        "></span>
-        <div id="notif-panel" style="
-          display:none;position:absolute;top:36px;right:0;
-          width:320px;background:#111118;border:1px solid #2a2a3a;
-          border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.6);
-          z-index:999;max-height:360px;overflow-y:auto;
-          font-family:'Rajdhani',sans-serif;
-        "></div>
-      </div>
-
-      <script>
-      let _notifOpen = false;
-
-      async function loadNotifications() {
-          const res  = await fetch('/api/notifications');
-          const data = await res.json();
-          const panel = document.getElementById('notif-panel');
-          const dot   = document.getElementById('notif-dot');
-
-          const unread = data.notifications.filter(n => !n.is_read).length;
-          dot.style.display = unread > 0 ? 'block' : 'none';
-
-          if (!data.notifications.length) {
-              panel.innerHTML = '<div style="padding:16px;color:#555;text-align:center;">Nav paziņojumu</div>';
-              return;
-          }
-          panel.innerHTML = data.notifications.map(n => `
-              <div style="
-                  padding:12px 16px;border-bottom:1px solid #1a1a2e;
-                  font-size:0.83rem;color:${n.is_read ? '#555' : '#e0e0e0'};
-              ">
-                  ${n.message}
-                  <div style="font-size:0.72rem;color:#333;margin-top:3px;">
-                      ${new Date(n.created_at).toLocaleString('lv-LV')}
-                  </div>
-              </div>
-          `).join('');
-      }
-
-      function toggleNotifPanel() {
-          _notifOpen = !_notifOpen;
-          document.getElementById('notif-panel').style.display = _notifOpen ? 'block' : 'none';
-          if (_notifOpen) loadNotifications();
-      }
-
-      document.addEventListener('click', e => {
-          const wrap = document.getElementById('notif-wrap');
-          if (wrap && !wrap.contains(e.target)) {
-              _notifOpen = false;
-              document.getElementById('notif-panel').style.display = 'none';
-          }
-      });
-
-      // Poll for new notifications every 30s
-      setInterval(async () => {
-          const res  = await fetch('/api/notifications');
-          const data = await res.json();
-          const unread = data.notifications.filter(n => !n.is_read).length;
-          document.getElementById('notif-dot').style.display = unread > 0 ? 'block' : 'none';
-      }, 30000);
-      </script>
-      {% endif %}
 
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}

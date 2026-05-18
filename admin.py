@@ -3507,6 +3507,7 @@ def _holdem_remove_player(user_id):
 @socketio.on('connect')
 def holdem_on_connect():
     if 'user_id' in session:
+        join_room('battles_global') 
         join_room(f'hplayer_{session["user_id"]}')
 
 @socketio.on('disconnect')
@@ -3940,6 +3941,283 @@ def api_profile_avatar():
 # ==========================================
 #  PREDICTION MARKET
 # ==========================================
+
+@app.route('/api/battles/queue')
+@login_required
+def api_battle_queue_list():
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT u.username, q.stake, q.joined_at
+        FROM battle_queue q
+        JOIN users u ON u.id = q.user_id
+        ORDER BY q.joined_at ASC
+        LIMIT 20
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return jsonify({'queue': rows})
+
+
+@app.route('/api/battles/mine')
+@login_required
+def api_battles_mine():
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT b.*,
+               u1.username AS p1_name, u2.username AS p2_name,
+               pe.title    AS event_title,
+               o1.label    AS p1_option_label,
+               o2.label    AS p2_option_label
+        FROM battles b
+        JOIN users u1 ON u1.id = b.player1_id
+        JOIN users u2 ON u2.id = b.player2_id
+        JOIN prediction_events pe ON pe.id = b.event_id
+        LEFT JOIN prediction_options o1 ON o1.id = b.p1_option_id
+        LEFT JOIN prediction_options o2 ON o2.id = b.p2_option_id
+        WHERE b.player1_id = %s OR b.player2_id = %s
+        ORDER BY b.created_at DESC
+        LIMIT 10
+    """, (user_id, user_id))
+    battles = [dict(r) for r in cur.fetchall()]
+
+    # Attach options for battles in 'picking' status
+    for b in battles:
+        if b['status'] == 'picking':
+            cur.execute(
+                "SELECT id, label FROM prediction_options WHERE event_id = %s",
+                (b['event_id'],)
+            )
+            b['options'] = [dict(r) for r in cur.fetchall()]
+
+    cur.close(); conn.close()
+    return jsonify({'battles': battles})
+
+@app.route('/api/battles/queue/join', methods=['POST'])
+@login_required
+def api_battle_queue_join():
+    user_id = session['user_id']
+    data    = request.json or {}
+    stake   = int(data.get('stake', 50))
+
+    if stake < 10:
+        return jsonify({'ok': False, 'error': 'Minimālā likme: 10 coins'}), 400
+
+    conn    = get_db_connection()
+    balance = get_or_create_balance(conn, user_id)
+    if balance < stake:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nepietiek monētu'}), 400
+
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Already in a battle?
+    cur.execute("""
+        SELECT id FROM battles
+        WHERE (player1_id = %s OR player2_id = %s)
+          AND status IN ('picking', 'active')
+    """, (user_id, user_id))
+    if cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Tu jau esi aktīvā duelī'}), 400
+
+    # Add to queue (upsert — updates stake if already waiting)
+    cur2 = conn.cursor()
+    cur2.execute("""
+        INSERT INTO battle_queue (user_id, stake)
+        VALUES (%s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET stake = EXCLUDED.stake, joined_at = NOW()
+    """, (user_id, stake))
+    conn.commit()
+
+    # Try to match immediately
+    cur.execute("""
+        SELECT user_id, stake FROM battle_queue
+        WHERE user_id != %s
+          AND stake = %s
+        ORDER BY joined_at ASC
+        LIMIT 1
+    """, (user_id, stake))
+    opponent = cur.fetchone()
+
+    if opponent:
+        battle_id = _create_battle(conn, user_id, opponent['user_id'], stake)
+        cur2.execute(
+            "DELETE FROM battle_queue WHERE user_id = ANY(%s)",
+            ([user_id, opponent['user_id']],)
+        )
+        conn.commit()
+        cur.close(); cur2.close(); conn.close()
+
+        socketio.emit('battle_matched', {'battle_id': battle_id},
+                      room=f'hplayer_{user_id}')
+        socketio.emit('battle_matched', {'battle_id': battle_id},
+                      room=f'hplayer_{opponent["user_id"]}')
+
+        return jsonify({'ok': True, 'matched': True, 'battle_id': battle_id})
+
+    cur.close(); cur2.close(); conn.close()
+    return jsonify({'ok': True, 'matched': False, 'waiting': True})
+
+
+@app.route('/api/battles/queue/leave', methods=['POST'])
+@login_required
+def api_battle_queue_leave():
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor()
+    cur.execute("DELETE FROM battle_queue WHERE user_id = %s", (user_id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return jsonify({'ok': True})
+
+def _create_battle(conn, p1_id: int, p2_id: int, stake: int) -> int:
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Pick a random open event neither player has bet on yet
+    cur.execute("""
+        SELECT pe.id FROM prediction_events pe
+        WHERE pe.status = 'open'
+          AND pe.closes_at > NOW()
+          AND pe.id NOT IN (
+              SELECT event_id FROM predictions
+              WHERE user_id = ANY(%s)
+          )
+        ORDER BY RANDOM()
+        LIMIT 1
+    """, ([p1_id, p2_id],))
+    event = cur.fetchone()
+
+    if not event:
+        cur.close()
+        raise ValueError('Nav pieejamu notikumu duelim')
+
+    cur2 = conn.cursor()
+    cur2.execute("""
+        INSERT INTO battles (player1_id, player2_id, event_id, stake)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id
+    """, (p1_id, p2_id, event['id'], stake))
+    battle_id = cur2.fetchone()[0]
+
+    # Escrow both stakes
+    for uid in (p1_id, p2_id):
+        cur2.execute(
+            "UPDATE wallets SET balance = balance - %s WHERE user_id = %s",
+            (stake, uid)
+        )
+        cur2.execute("""
+            INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+            SELECT %s, %s, 'battle:escrow', %s, balance FROM wallets WHERE user_id = %s
+        """, (uid, -stake, str(battle_id), uid))
+
+    conn.commit()
+    cur.close(); cur2.close()
+    return battle_id
+
+@app.route('/api/battles/<int:battle_id>/pick', methods=['POST'])
+@login_required
+def api_battle_pick(battle_id):
+    user_id   = session['user_id']
+    option_id = int((request.json or {}).get('option_id', 0))
+
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM battles WHERE id = %s", (battle_id,))
+    b = cur.fetchone()
+
+    if not b:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav atrasts'}), 404
+    if b['status'] != 'picking':
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Izvēle nav iespējama'}), 400
+    if user_id not in (b['player1_id'], b['player2_id']):
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav tavs duelis'}), 403
+
+    # Validate option belongs to this event
+    cur.execute(
+        "SELECT id FROM prediction_options WHERE id = %s AND event_id = %s",
+        (option_id, b['event_id'])
+    )
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nepareiza opcija'}), 400
+
+    cur2 = conn.cursor()
+    if user_id == b['player1_id']:
+        cur2.execute(
+            "UPDATE battles SET p1_option_id = %s WHERE id = %s",
+            (option_id, battle_id)
+        )
+    else:
+        cur2.execute(
+            "UPDATE battles SET p2_option_id = %s WHERE id = %s",
+            (option_id, battle_id)
+        )
+    conn.commit()
+
+    # Reload to check if both picked
+    cur.execute("SELECT * FROM battles WHERE id = %s", (battle_id,))
+    b = cur.fetchone()
+
+    if b['p1_option_id'] and b['p2_option_id']:
+        cur2.execute(
+            "UPDATE battles SET status = 'active' WHERE id = %s", (battle_id,)
+        )
+        conn.commit()
+        socketio.emit('battle_active', {'battle_id': battle_id},
+                      room=f'battle_{battle_id}')
+
+    cur.close(); cur2.close(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/battles/<int:battle_id>')
+@login_required
+def api_battle_get(battle_id):
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT b.*,
+               u1.username AS p1_name, u2.username AS p2_name,
+               pe.title    AS event_title,
+               o1.label    AS p1_option_label,
+               o2.label    AS p2_option_label
+        FROM battles b
+        JOIN users u1 ON u1.id = b.player1_id
+        JOIN users u2 ON u2.id = b.player2_id
+        JOIN prediction_events pe ON pe.id = b.event_id
+        LEFT JOIN prediction_options o1 ON o1.id = b.p1_option_id
+        LEFT JOIN prediction_options o2 ON o2.id = b.p2_option_id
+        WHERE b.id = %s
+    """, (battle_id,))
+    battle = cur.fetchone()
+    if not battle or user_id not in (battle['player1_id'], battle['player2_id']):
+        conn.close()
+        return jsonify({'error': 'Nav atrasts'}), 404
+
+    # Options for picking
+    cur.execute("""
+        SELECT id, label FROM prediction_options WHERE event_id = %s
+    """, (battle['event_id'],))
+    options = [dict(r) for r in cur.fetchall()]
+
+    cur.close(); conn.close()
+    return jsonify({'battle': dict(battle), 'options': options})
+
+
+@app.route('/battles')
+@login_required
+def battles_page():
+    conn    = get_db_connection()
+    balance = get_or_create_balance(conn, session['user_id'])
+    conn.close()
+    return render_template('battles.html', balance=balance)
 
 @app.route('/api/predictors/following')
 @login_required
@@ -4607,6 +4885,7 @@ def api_prediction_resolve(event_id):
     _update_weekly_lb(conn, event_id, winning_option_id)
     _update_prediction_stats(conn, event_id, winning_option_id)
     _resolve_duels_for_event(conn, event_id, winning_option_id)  # before close
+    _resolve_battles_for_event(conn, event_id, winning_option_id)
     _resolve_club_challenges(conn, event_id, winning_option_id)
 
     socketio.emit('prediction_resolved', {
@@ -4621,6 +4900,171 @@ def api_prediction_resolve(event_id):
     conn.close()
 
     return jsonify({'ok': True, 'total_pot': total_pot, 'winners': len(winners)})
+
+def _resolve_battles_for_event(conn, event_id: int, winning_option_id: int):
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT * FROM battles
+        WHERE event_id = %s AND status = 'active'
+    """, (event_id,))
+    battles = cur.fetchall()
+
+    cur2 = conn.cursor()
+    for b in battles:
+        p1_won = b['p1_option_id'] == winning_option_id
+        p2_won = b['p2_option_id'] == winning_option_id
+        pot    = b['stake'] * 2
+
+        if p1_won and not p2_won:
+            winner_id, loser_id = b['player1_id'], b['player2_id']
+        elif p2_won and not p1_won:
+            winner_id, loser_id = b['player2_id'], b['player1_id']
+        else:
+            # Both right or both wrong — refund
+            for uid in (b['player1_id'], b['player2_id']):
+                cur2.execute(
+                    "UPDATE wallets SET balance = balance + %s WHERE user_id = %s",
+                    (b['stake'], uid)
+                )
+            cur2.execute("""
+                UPDATE battles SET status='finished', resolved_at=NOW()
+                WHERE id = %s
+            """, (b['id'],))
+            socketio.emit('battle_result', {
+                'battle_id': b['id'], 'result': 'draw'
+            }, room=f'battle_{b["id"]}')
+            continue
+
+        cur2.execute(
+            "UPDATE wallets SET balance = balance + %s WHERE user_id = %s",
+            (pot, winner_id)
+        )
+        cur2.execute("""
+            INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+            SELECT %s, %s, 'battle:win', %s, balance FROM wallets WHERE user_id = %s
+        """, (winner_id, pot, str(b['id']), winner_id))
+
+        cur2.execute("""
+            UPDATE battles SET status='finished', winner_id=%s, resolved_at=NOW()
+            WHERE id = %s
+        """, (winner_id, b['id']))
+
+        for uid, msg in (
+            (winner_id, f'⚔️ Duelis uzvarēts! +{pot} coins!'),
+            (loser_id,  f'⚔️ Duelis zaudēts. -{b["stake"]} coins.')
+        ):
+            cur2.execute(
+                "INSERT INTO notifications (user_id, message) VALUES (%s, %s)",
+                (uid, msg)
+            )
+
+        socketio.emit('battle_result', {
+            'battle_id': b['id'],
+            'winner_id': winner_id,
+            'pot':       pot
+        }, room=f'battle_{b["id"]}')
+
+    conn.commit()
+    cur.close(); cur2.close()
+
+@app.route('/leaderboard')
+@login_required
+def leaderboard_page():
+    conn    = get_db_connection()
+    user_id = session['user_id']
+
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Casino — net winnings all-time, this week, today
+    cur.execute("""
+        SELECT u.id, u.username,
+               COALESCE(p.display_name, u.username) AS display_name,
+               COALESCE(p.avatar_path, '')           AS avatar_path,
+               COALESCE(pt.tier, 'unranked')         AS tier,
+               SUM(ct.winnings)                      AS net_total,
+               SUM(CASE WHEN ct.created_at >= NOW() - INTERVAL '7 days'
+                        THEN ct.winnings ELSE 0 END) AS net_week,
+               SUM(CASE WHEN ct.created_at >= CURRENT_DATE
+                        THEN ct.winnings ELSE 0 END) AS net_today,
+               COUNT(ct.id)                          AS total_games
+        FROM casino_transactions ct
+        JOIN users u ON u.id = ct.user_id
+        LEFT JOIN profiles p ON p.user_id = ct.user_id
+        LEFT JOIN predictor_tiers pt ON pt.user_id = ct.user_id
+        GROUP BY u.id, u.username, p.display_name, p.avatar_path, pt.tier
+        HAVING COUNT(ct.id) >= 5
+        ORDER BY net_total DESC
+        LIMIT 50
+    """)
+    casino_lb = [dict(r) for r in cur.fetchall()]
+
+    # Predictions
+    cur.execute("""
+        SELECT u.id, u.username,
+               COALESCE(p.display_name, u.username) AS display_name,
+               COALESCE(p.avatar_path, '')           AS avatar_path,
+               COALESCE(pt.tier, 'unranked')         AS tier,
+               ps.total_bets, ps.total_wins,
+               (ps.total_returned - ps.total_staked) AS profit,
+               ROUND(ps.total_wins::numeric / NULLIF(ps.total_bets,0) * 100, 1) AS win_rate,
+               ps.best_streak
+        FROM prediction_stats ps
+        JOIN users u ON u.id = ps.user_id
+        LEFT JOIN profiles p ON p.user_id = ps.user_id
+        LEFT JOIN predictor_tiers pt ON pt.user_id = ps.user_id
+        WHERE ps.total_bets >= 5
+        ORDER BY profit DESC
+        LIMIT 50
+    """)
+    pred_lb = [dict(r) for r in cur.fetchall()]
+
+    # Battles
+    cur.execute("""
+        SELECT u.id, u.username,
+               COALESCE(p.display_name, u.username) AS display_name,
+               COALESCE(p.avatar_path, '')           AS avatar_path,
+               COUNT(b.id)                           AS total,
+               SUM(CASE WHEN b.winner_id = u.id THEN 1 ELSE 0 END) AS wins,
+               SUM(CASE WHEN b.winner_id IS NOT NULL
+                         AND b.winner_id != u.id THEN 1 ELSE 0 END) AS losses,
+               SUM(CASE WHEN b.winner_id = u.id THEN b.stake ELSE -b.stake END) AS net
+        FROM battles b
+        JOIN users u ON u.id = b.player1_id OR u.id = b.player2_id
+        LEFT JOIN profiles p ON p.user_id = u.id
+        WHERE b.status = 'finished'
+        GROUP BY u.id, u.username, p.display_name, p.avatar_path
+        HAVING COUNT(b.id) >= 1
+        ORDER BY wins DESC, net DESC
+        LIMIT 50
+    """)
+    battle_lb = [dict(r) for r in cur.fetchall()]
+
+    # My ranks
+    def my_rank(lb, key='id'):
+        for i, row in enumerate(lb):
+            if row['id'] == user_id:
+                return i + 1
+        return None
+
+    cur.close()
+    conn.close()
+
+    return render_template('leaderboard.html',
+                           casino_lb=casino_lb,
+                           pred_lb=pred_lb,
+                           battle_lb=battle_lb,
+                           my_casino_rank=my_rank(casino_lb),
+                           my_pred_rank=my_rank(pred_lb),
+                           my_battle_rank=my_rank(battle_lb),
+                           user_id=user_id)
+
+@app.route('/api/balance_quick')
+@login_required
+def api_balance_quick():
+    conn    = get_db_connection()
+    balance = get_or_create_balance(conn, session['user_id'])
+    conn.close()
+    return jsonify({'balance': round(balance, 0)})
 
 @app.route('/api/predictions/leaderboard')
 @login_required

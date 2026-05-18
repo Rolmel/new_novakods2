@@ -5,7 +5,31 @@
 -- UPDATE users SET referral_code = encode(gen_random_bytes(4), 'hex') WHERE referral_code IS NULL;
 
 
+CREATE TABLE IF NOT EXISTS battle_queue (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    stake       INTEGER NOT NULL CHECK (stake > 0),
+    joined_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id)
+);
 
+CREATE TABLE IF NOT EXISTS battles (
+    id              SERIAL PRIMARY KEY,
+    player1_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    player2_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_id        INTEGER NOT NULL REFERENCES prediction_events(id) ON DELETE CASCADE,
+    p1_option_id    INTEGER REFERENCES prediction_options(id),
+    p2_option_id    INTEGER REFERENCES prediction_options(id),
+    stake           INTEGER NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'picking',
+    -- picking | active | finished
+    winner_id       INTEGER REFERENCES users(id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at     TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS battles_player ON battles(player1_id, player2_id);
+CREATE INDEX IF NOT EXISTS battles_event  ON battles(event_id, status);
 
 CREATE TABLE IF NOT EXISTS highroller_sessions (
     user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
