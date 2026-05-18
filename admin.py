@@ -322,7 +322,6 @@ def login():
             session['user_id']   = user['id']
             session['user_name'] = user['username']
             session['is_admin']  = bool(user['is_admin'])
-            # ensure wallet row exists
             conn2 = get_db_connection()
             get_or_create_balance(conn2, user['id'])
             conn2.close()
@@ -334,7 +333,8 @@ def login():
             record_attempt(ip)
             remaining = MAX_LOGIN_ATTEMPTS - len(login_attempts.get(ip, []))
             flash(f"Nepareizs lietotājvārds vai parole! (atlikuši {remaining} mēģinājumi)", 'error')
-    return render_template('index.html')
+
+    return render_template('login.html')  # ← fixed
 
 @app.route('/logout')
 def logout():
@@ -350,9 +350,68 @@ def logout():
 
 
 
+@app.route('/api/tier/progress')
+@login_required
+def api_tier_progress():
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT ps.total_bets, ps.total_wins, ps.current_streak,
+               ps.total_staked, ps.total_returned,
+               COALESCE(pt.tier, 'unranked') AS tier
+        FROM prediction_stats ps
+        LEFT JOIN predictor_tiers pt ON pt.user_id = ps.user_id
+        WHERE ps.user_id = %s
+    """, (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
 
+    if not row:
+        return jsonify({'tier': 'unranked', 'bets': 0, 'wins': 0,
+                        'win_rate': 0, 'roi': 0, 'progress': None})
 
+    n        = row['total_bets'] or 0
+    wins     = row['total_wins'] or 0
+    win_rate = round(wins / n * 100, 1) if n else 0
+    staked   = row['total_staked'] or 1
+    roi      = round((row['total_returned'] - staked) / staked * 100, 1)
 
+    NEXT = {
+        'unranked': {'bets': 5,  'win_rate': 0,  'roi': 0,  'label': 'Bronze', 'icon': '🥉'},
+        'bronze':   {'bets': 10, 'win_rate': 55, 'roi': 0,  'label': 'Silver', 'icon': '🥈'},
+        'silver':   {'bets': 20, 'win_rate': 60, 'roi': 0,  'label': 'Gold',   'icon': '🥇'},
+        'gold':     {'bets': 30, 'win_rate': 65, 'roi': 20, 'label': 'Expert', 'icon': '⭐'},
+        'expert':   {'bets': 50, 'win_rate': 70, 'roi': 40, 'label': 'Oracle', 'icon': '🔮'},
+        'oracle':   None,
+    }
+
+    tier = row['tier']
+    req  = NEXT.get(tier)
+    progress = None
+    if req:
+        progress = {
+            'next_tier':  req['label'],
+            'next_icon':  req['icon'],
+            'bets':       {'current': n,        'needed': req['bets'],     'pct': min(100, round(n / req['bets'] * 100))},
+            'win_rate':   {'current': win_rate,  'needed': req['win_rate'], 'pct': min(100, round(win_rate / max(req['win_rate'], 1) * 100)) if req['win_rate'] else 100},
+            'roi':        {'current': roi,       'needed': req['roi'],      'pct': min(100, round(roi / max(req['roi'], 1) * 100)) if req['roi'] else 100},
+        }
+
+    return jsonify({
+        'tier': tier, 'bets': n, 'wins': wins,
+        'win_rate': win_rate, 'roi': roi,
+        'streak': row['current_streak'],
+        'progress': progress
+    })
+
+@socketio.on('join_battle_watch')
+def on_join_battle_watch():
+    if 'user_id' in session:
+        join_room('battles_global')
+        join_room(f'hplayer_{session["user_id"]}')
+        emit('battle_watch_ok', {'ok': True})
 
 def _is_highroller(conn, user_id: int) -> bool:
     """
@@ -596,21 +655,60 @@ def _progress_mission(conn, user_id: int, slug: str, amount: int = 1) -> list[st
 @app.route('/api/referral/stats')
 @login_required
 def api_referral_stats():
-    ...
+    user_id = session['user_id']
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
         SELECT COUNT(*) AS total,
                SUM(CASE WHEN bonus_paid THEN 1 ELSE 0 END) AS paid
         FROM referrals WHERE referrer_id = %s
     """, (user_id,))
     stats = dict(cur.fetchone())
-    cur.execute(
-        "SELECT referral_code FROM users WHERE id = %s", (user_id,)
-    )
+    cur.execute("SELECT referral_code FROM users WHERE id = %s", (user_id,))
     row = cur.fetchone()
     stats['code'] = row['referral_code'] if row else None
     cur.close()
     conn.close()
     return jsonify(stats)
+
+@app.route('/hall-of-fame')
+@login_required
+def hall_of_fame():
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT season, category, username, score, rank_place
+        FROM season_rankings
+        WHERE rank_place <= 3
+        ORDER BY season DESC, category, rank_place
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+
+    by_season = {}
+    for r in rows:
+        by_season.setdefault(r['season'], {}).setdefault(r['category'], []).append(r)
+
+    return render_template('hall_of_fame.html', by_season=by_season)
+
+
+@app.route('/api/admin/snapshot_season', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_snapshot_season():
+    data   = request.json or {}
+    season = data.get('season', '').strip()  # e.g. '2025-Q2'
+    if not season:
+        return jsonify({'ok': False, 'error': 'Season required e.g. 2025-Q2'})
+    conn = get_db_connection()
+    try:
+        _snapshot_season(conn, season)
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        conn.close()
+        return jsonify({'ok': False, 'error': str(e)})
 
 @app.route('/ref/<string:code>')
 def referral_landing(code):
@@ -1376,13 +1474,13 @@ def _get_equipped_skin_css(user_id: int) -> str:
     return ''
 
 
-@app.context_processor
-def inject_skin():
-    """Makes `card_skin_css` available in every Jinja template."""
-    css = ''
-    if 'user_id' in session:
-        css = _get_equipped_skin_css(session['user_id'])
-    return {'card_skin_css': css}
+# @app.context_processor
+# def inject_skin():
+#     """Makes `card_skin_css` available in every Jinja template."""
+#     css = ''
+#     if 'user_id' in session:
+#         css = _get_equipped_skin_css(session['user_id'])
+#     return {'card_skin_css': css}
 
 @app.route('/api/shop/equip', methods=['POST'])
 @login_required

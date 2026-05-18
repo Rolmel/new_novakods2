@@ -20,7 +20,7 @@
 
   <a href="/" style="font-family:'Cinzel Decorative',serif; color:#f5c842; font-size:1rem; text-decoration:none; white-space:nowrap; flex-shrink:0;">NovaKods</a>
 
-  <div id="nav-search-wrap" style="position:relative; flex:1; max-width:300px; margin:0 8px;">
+  <div id="nav-search-wrap" style="position:sticky; flex:1; max-width:300px; margin:0 8px;">
     <input id="nav-search"
       placeholder="🔍 Meklēt..."
       oninput="navSearch()"
@@ -42,7 +42,7 @@
       <span id="notif-dot" style="display:none; position:absolute; top:-2px; right:-3px;
         width:8px; height:8px; border-radius:50%; background:#ff1744; border:2px solid #0a0a0f;"></span>
       <div id="notif-panel" style="
-        display:none; position:fixed; top:52px; right:16px;
+        display:none; position:absolute; top:100%; right:0; margin-top:4px;
         width:300px; background:#111118; border:1px solid #2a2a3a;
         border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.7);
         z-index:9999; max-height:340px; overflow-y:auto;
@@ -79,15 +79,16 @@
     <div style="font-weight:700; color:#f5c842; font-size:0.95rem;">{{ session.user_name }}</div>
     <div style="font-size:0.75rem; color:#555; margin-top:2px;" id="nav-balance-display">💰 ...</div>
   </div>
-  <a href="/casino"       class="bm-item">♠️ Casino</a>
-  <a href="/predictions"  class="bm-item">📈 Prognozes</a>
-  <a href="/leaderboard"  class="bm-item">🏆 Reitingi</a>
-  <a href="/clubs"        class="bm-item">🏛️ Klubi</a>
-  <a href="/duels"        class="bm-item">⚔️ Dueļi</a>
-  <a href="/battles"      class="bm-item">🥊 Kaujas</a>
-  <a href="/tournaments"  class="bm-item">🎯 Turnīri</a>
-  <a href="/shop"         class="bm-item">🛍️ Veikals</a>
-  <a href="/profile"      class="bm-item">👤 Profils</a>
+  <a href="/casino"       class="bm-item">Casino</a>
+  <a href="/predictions"  class="bm-item">Prognozes</a>
+  <a href="/leaderboard"  class="bm-item">Reitingi</a>
+  <a href="/clubs"        class="bm-item">Klubi</a>
+  <a href="/duels"        class="bm-item">Dueļi</a>
+  <a href="/battles"      class="bm-item">Kaujas</a>
+  <a href="/tournaments"  class="bm-item">Turnīri</a>
+  <a href="/shop"         class="bm-item">Veikals</a>
+  <a href="/hall-of-fame" class="bm-item">Slavas Zāle</a>
+  <a href="/profile"      class="bm-item">Profils</a>
   {% if session.is_admin %}
   <a href="/admin"        class="bm-item" style="color:#ff6b6b;">⚙️ Admin</a>
   {% endif %}
@@ -787,6 +788,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('dm-badge').style.display   = total > 0 ? 'inline' : 'none';
     document.getElementById('fc-badge').style.display   = total > 0 ? 'inline' : 'none';
   }, 8000);
+});
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('burger-menu').style.display = 'none';
+  _burgerOpen = false;
 });
 </script>
 {% endif %}

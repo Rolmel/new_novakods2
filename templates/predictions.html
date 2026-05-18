@@ -232,6 +232,135 @@ h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center
       <div class="empty">Nav neviena notikuma vēl.</div>
     {% endfor %}
   </div>
+  
+    <!-- TIER PROGRESS WIDGET -->
+  <div id="tier-widget" style="
+    background:#111118; border:1px solid #2a2a3a; border-radius:14px;
+    padding:20px; margin-top:24px;
+  ">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+      <div style="font-family:'Cinzel Decorative',serif; color:var(--gold); font-size:0.9rem;">
+        📊 Tavs Prognozētāja Ceļš
+      </div>
+      <div id="tw-tier-badge" style="font-size:1.1rem;"></div>
+    </div>
+
+    <div id="tw-progress-section">
+      <div style="color:#555; font-size:0.8rem; text-align:center; padding:16px;">
+        Ielādē...
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:14px;" id="tw-stats">
+    </div>
+  </div>
+
+  <!-- FOLLOWING FEED -->
+  <div id="following-feed-box" style="
+    background:#111118; border:1px solid #2a2a3a; border-radius:14px;
+    padding:20px; margin-top:16px; display:none;
+  ">
+    <div style="font-family:'Cinzel Decorative',serif; color:var(--gold); font-size:0.9rem; margin-bottom:14px;">
+      👥 Seko Prognozētāju Aktivitāte
+    </div>
+    <div id="following-feed-list"></div>
+  </div>
+
+  <script>
+  const TIER_COLORS = {
+    oracle:'#a855f7', expert:'#f5c842', gold:'#fbbf24',
+    silver:'#c0c0c0', bronze:'#cd7f32', unranked:'#555'
+  };
+  const TIER_ICONS = {
+    oracle:'🔮', expert:'⭐', gold:'🥇', silver:'🥈', bronze:'🥉', unranked:'—'
+  };
+
+  async function loadTierProgress() {
+    const res  = await fetch('/api/tier/progress');
+    const data = await res.json();
+    const color = TIER_COLORS[data.tier] || '#555';
+    const icon  = TIER_ICONS[data.tier]  || '—';
+
+    document.getElementById('tw-tier-badge').innerHTML =
+      `<span style="color:${color};font-weight:700;">${icon} ${data.tier.toUpperCase()}</span>`;
+
+    const stats = document.getElementById('tw-stats');
+    stats.innerHTML = `
+      <div style="background:#0a0a14;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:1.3rem;font-weight:700;color:var(--gold)">${data.bets}</div>
+        <div style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:1px;">Likmes</div>
+      </div>
+      <div style="background:#0a0a14;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:1.3rem;font-weight:700;color:${data.win_rate >= 60 ? 'var(--green)' : '#aaa'}">${data.win_rate}%</div>
+        <div style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:1px;">Uzvara%</div>
+      </div>
+      <div style="background:#0a0a14;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:1.3rem;font-weight:700;color:${data.roi >= 0 ? 'var(--green)' : 'var(--red)'}">${data.roi}%</div>
+        <div style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:1px;">ROI</div>
+      </div>
+    `;
+
+    const prog = data.progress;
+    const sec  = document.getElementById('tw-progress-section');
+    if (!prog) {
+      sec.innerHTML = `<div style="text-align:center;color:var(--gold);font-weight:700;padding:8px;">
+        🏆 Esi sasniedzis augstāko līmeni!</div>`;
+      return;
+    }
+
+    const bars = [
+      { label: `Likmes (${prog.bets.current}/${prog.bets.needed})`, pct: prog.bets.pct, met: prog.bets.current >= prog.bets.needed },
+      { label: `Uzvara% (${prog.win_rate.current}%/${prog.win_rate.needed}%)`, pct: prog.win_rate.pct, met: prog.win_rate.current >= prog.win_rate.needed },
+      { label: `ROI (${prog.roi.current}%/${prog.roi.needed}%)`, pct: prog.roi.pct, met: prog.roi.current >= prog.roi.needed },
+    ];
+
+    sec.innerHTML = `
+      <div style="color:#888;font-size:0.8rem;margin-bottom:10px;">
+        Nākamais līmenis: <strong style="color:${TIER_COLORS[prog.next_tier.toLowerCase()] || '#fff'}">${prog.next_icon} ${prog.next_tier}</strong>
+      </div>
+      ${bars.map(b => `
+        <div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:4px;">
+            <span style="color:${b.met ? 'var(--green)' : '#888'}">${b.met ? '✓ ' : ''}${b.label}</span>
+            <span style="color:${b.met ? 'var(--green)' : 'var(--gold)'}">${b.pct}%</span>
+          </div>
+          <div style="background:#1a1a2e;border-radius:4px;height:6px;overflow:hidden;">
+            <div style="height:100%;width:${b.pct}%;background:${b.met ? 'var(--green)' : 'linear-gradient(90deg,#f5c842,#a855f7)'};border-radius:4px;transition:width .6s;"></div>
+          </div>
+        </div>
+      `).join('')}
+    `;
+  }
+
+  async function loadFollowingFeed() {
+    const res  = await fetch('/api/predictions/following_feed');
+    const data = await res.json();
+    const box  = document.getElementById('following-feed-list');
+    const wrap = document.getElementById('following-feed-box');
+
+    if (!data.length) return;
+    wrap.style.display = 'block';
+
+    box.innerHTML = data.map(f => `
+      <div style="padding:10px 0;border-bottom:1px solid #111120;font-size:0.85rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <a href="/u/${f.username}" style="color:var(--gold);font-weight:700;text-decoration:none;">
+            ${TIER_ICONS[f.tier] || ''} ${f.display_name}
+          </a>
+          <span style="color:#444;font-size:0.72rem;">${new Date(f.created_at).toLocaleString('lv-LV',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+        </div>
+        <div style="color:#888;margin-top:3px;">
+          Likme <strong style="color:#e0e0e0">${f.stake} coins</strong> uz
+          <strong style="color:var(--gold)">${f.option_label}</strong>
+        </div>
+        <div style="color:#555;font-size:0.78rem;margin-top:2px;">📈 ${f.event_title}</div>
+      </div>
+    `).join('');
+  }
+
+  loadTierProgress();
+  loadFollowingFeed();
+  </script>
 </div>
 
 <script>

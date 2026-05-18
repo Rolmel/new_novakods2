@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}🏆 Slavas Zāle{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:860px; margin:0 auto; padding:24px 20px; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold);
+     text-align:center; text-shadow:0 0 30px #f5c84244; margin-bottom:6px; }
+.sub { text-align:center; color:#444; font-size:0.78rem;
+       text-transform:uppercase; letter-spacing:2px; margin-bottom:32px; }
+.season-block { margin-bottom:36px; }
+.season-title {
+  font-family:'Cinzel Decorative',serif; color:var(--gold);
+  font-size:1rem; border-bottom:1px solid #2a2a3a;
+  padding-bottom:8px; margin-bottom:18px;
+}
+.cat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:16px; }
+.cat-card {
+  background:#111118; border:1px solid #2a2a3a; border-radius:14px; padding:18px;
+}
+.cat-name { color:#888; font-size:0.72rem; text-transform:uppercase;
+            letter-spacing:1px; margin-bottom:12px; }
+.hof-row {
+  display:flex; align-items:center; gap:10px;
+  padding:8px 0; border-bottom:1px solid #111120;
+}
+.hof-row:last-child { border:none; }
+.hof-medal { font-size:1.3rem; min-width:28px; }
+.hof-name { flex:1; font-weight:700; }
+.hof-name a { color:#e0e0e0; text-decoration:none; }
+.hof-name a:hover { color:var(--gold); }
+.hof-score { color:var(--gold); font-weight:700;
+             font-family:'Cinzel Decorative',serif; font-size:0.9rem; }
+.empty { text-align:center; color:#333; padding:60px; font-size:1.1rem; }
+
+{% if session.is_admin %}
+.admin-snap {
+  background:#111118; border:1px solid #2a2a3a; border-radius:12px;
+  padding:16px; margin-bottom:24px; display:flex; gap:10px; align-items:center;
+}
+.admin-snap input {
+  flex:1; padding:9px 12px; background:#0a0a14; border:1px solid #333;
+  border-radius:8px; color:#fff; font-family:'Rajdhani',sans-serif;
+}
+.snap-btn {
+  padding:9px 18px; background:#1a1a2e; border:1px solid #f5c842;
+  color:#f5c842; border-radius:8px; cursor:pointer;
+  font-family:'Rajdhani',sans-serif; font-weight:700;
+}
+{% endif %}
+</style>
+
+<div class="page">
+  <h1>🏆 Slavas Zāle</h1>
+  <p class="sub">Sezonālie čempioni — mūžīgā slava</p>
+
+  {% if session.is_admin %}
+  <div class="admin-snap">
+    <input id="snap-season" placeholder="Sezona (piem. 2025-Q2)" maxlength="10">
+    <button class="snap-btn" onclick="snapSeason()">📸 Saglabāt sezonu</button>
+    <span id="snap-msg" style="font-size:0.82rem;color:#888;"></span>
+  </div>
+  {% endif %}
+
+  {% if by_season %}
+    {% for season, cats in by_season.items() %}
+    <div class="season-block">
+      <div class="season-title">📅 {{ season }}</div>
+      <div class="cat-grid">
+        {% for cat, rows in cats.items() %}
+        <div class="cat-card">
+          <div class="cat-name">
+            {% if cat == 'predictions' %}📈 Prognozes
+            {% elif cat == 'casino' %}🎰 Casino
+            {% else %}{{ cat }}{% endif %}
+          </div>
+          {% for r in rows %}
+          <div class="hof-row">
+            <div class="hof-medal">
+              {% if r.rank_place == 1 %}🥇
+              {% elif r.rank_place == 2 %}🥈
+              {% else %}🥉{% endif %}
+            </div>
+            <div class="hof-name">
+              <a href="/u/{{ r.username }}">{{ r.username }}</a>
+            </div>
+            <div class="hof-score">{{ r.score | int }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="empty">
+    <div style="font-size:3rem;margin-bottom:12px;">🏆</div>
+    Nav sezonālo datu vēl. Admins ierakstīs pirmās sezonas rezultātus!
+  </div>
+  {% endif %}
+</div>
+
+{% if session.is_admin %}
+<script>
+async function snapSeason() {
+  const season = document.getElementById('snap-season').value.trim();
+  const msg    = document.getElementById('snap-msg');
+  if (!season) { msg.textContent = 'Ievadi sezonu!'; return; }
+  msg.textContent = '⏳ Saglabā...';
+  const res  = await fetch('/api/admin/snapshot_season', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({season})
+  });
+  const data = await res.json();
+  msg.style.color = data.ok ? '#00e676' : '#ff1744';
+  msg.textContent = data.ok ? '✅ Saglabāts!' : '❌ ' + data.error;
+  if (data.ok) setTimeout(() => location.reload(), 1500);
+}
+</script>
+{% endif %}
+{% endblock %}
