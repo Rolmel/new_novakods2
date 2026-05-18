@@ -503,6 +503,23 @@ tr:hover td { background: rgba(255,255,255,.015); }
     </div>
   </div>
 </div>
+</div>
+
+<div class="panel" style="margin-top:16px;">
+  <div class="panel-bar"><span class="panel-bar-title">BRACKETS</span></div>
+  <div style="padding:16px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div class="field"><label>Name</label><input type="text" id="br-name" placeholder="Weekend Survivor"></div>
+      <div class="field"><label>Entry fee</label><input type="number" id="br-fee" value="0" min="0"></div>
+      <div class="field"><label>Lives</label><input type="number" id="br-lives" value="3" min="1"></div>
+      <div class="field"><label>Prize pool (fixed bonus)</label><input type="number" id="br-prize" value="0" min="0"></div>
+      <div class="field"><label>Starts at</label><input type="datetime-local" id="br-starts"></div>
+      <div class="field"><label>Description</label><input type="text" id="br-desc" placeholder="Optional"></div>
+    </div>
+    <button class="mbtn mbtn-save" onclick="createBracket()" style="width:100%">⚡ Create Bracket</button>
+    <div id="br-msg" style="margin-top:8px;font-size:0.85rem;display:none;"></div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -766,5 +783,30 @@ window.addEventListener('load', () => {
   document.getElementById('last-refresh').textContent =
     new Date().toLocaleTimeString('lv-LV', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 });
+
+async function createBracket() {
+  const msg = document.getElementById('br-msg');
+  msg.style.display = 'block';
+  msg.textContent = '⏳ Creating...';
+  const res  = await fetch('/api/admin/brackets', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      name:        document.getElementById('br-name').value,
+      entry_fee:   parseInt(document.getElementById('br-fee').value) || 0,
+      lives:       parseInt(document.getElementById('br-lives').value) || 3,
+      prize_pool:  parseInt(document.getElementById('br-prize').value) || 0,
+      starts_at:   document.getElementById('br-starts').value,
+      description: document.getElementById('br-desc').value,
+    })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    msg.style.color = 'var(--green)';
+    msg.textContent = `✅ Created! ID: ${data.id} — go to /brackets/${data.id} to add rounds`;
+  } else {
+    msg.style.color = 'var(--red)';
+    msg.textContent = '❌ ' + data.error;
+  }
+}
 </script>
 {% endblock %}

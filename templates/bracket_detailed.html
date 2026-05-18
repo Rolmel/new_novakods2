@@ -1,0 +1,355 @@
+{% extends "base.html" %}
+{% block title %}⚡ {{ b.name }}{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; --blue:#2196f3; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:900px; margin:0 auto; padding:24px 20px; }
+.back-link { color:var(--gold); text-decoration:none; display:inline-block; margin-bottom:16px; }
+.header {
+  background:radial-gradient(ellipse at top, #1a0a00 0%, #0a0a0f 70%);
+  border:1px solid var(--gold); border-radius:16px; padding:28px; text-align:center; margin-bottom:20px;
+}
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); margin:0 0 6px; }
+.meta-chips { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin:14px 0; }
+.chip {
+  background:#1a1a2e; border:1px solid #2a2a3a; border-radius:20px;
+  padding:5px 16px; font-size:0.85rem; color:#aaa;
+}
+.chip b { color:var(--gold); }
+.layout { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+@media(max-width:700px){ .layout { grid-template-columns:1fr; } }
+.panel { background:#111118; border:1px solid #2a2a3a; border-radius:14px; padding:20px; margin-bottom:16px; }
+.panel-title { color:var(--gold); font-weight:700; font-size:0.9rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:14px; }
+/* Rounds */
+.round-card {
+  background:#0a0a14; border:1px solid #2a2a3a; border-radius:12px;
+  padding:16px; margin-bottom:12px;
+}
+.round-card.active { border-color:#f5c84244; }
+.round-card.resolved { opacity:.7; }
+.round-num { color:#555; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; }
+.round-event { font-weight:700; font-size:0.95rem; margin-bottom:12px; }
+.opt-grid { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+.opt-btn {
+  flex:1; min-width:100px; padding:10px 14px;
+  border:1px solid #333; background:#111118; border-radius:8px;
+  color:#aaa; cursor:pointer; text-align:center;
+  font-family:'Rajdhani',sans-serif; font-size:0.88rem; font-weight:600;
+  transition:all .15s;
+}
+.opt-btn:hover { border-color:var(--gold); color:var(--gold); }
+.opt-btn.selected { border-color:var(--blue); background:#2196f311; color:var(--blue); }
+.opt-btn.correct { border-color:var(--green); background:#00e67611; color:var(--green); }
+.opt-btn.wrong { border-color:var(--red); background:#ff174411; color:#ff8888; }
+.pick-submit {
+  width:100%; padding:10px; background:linear-gradient(135deg,#f5c842,#e6a800);
+  border:none; border-radius:8px; font-family:'Rajdhani',sans-serif;
+  font-size:1rem; font-weight:700; color:#000; cursor:pointer; margin-top:6px;
+}
+.pick-submit:disabled { opacity:.4; cursor:not-allowed; }
+/* Lives */
+.lives-display { display:flex; gap:6px; align-items:center; justify-content:center; font-size:1.4rem; margin-bottom:8px; }
+/* Leaderboard */
+.lb-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #111120; }
+.lb-row:last-child { border:none; }
+.lb-row.me { background:#1a1a08; border-radius:8px; padding:8px; }
+.lb-rank { min-width:28px; font-weight:700; color:#555; }
+.lb-name { flex:1; font-weight:600; }
+.lb-lives { display:flex; gap:3px; }
+.lb-heart { font-size:0.9rem; }
+.eliminated { opacity:.4; }
+/* Admin */
+.admin-panel { background:#111118; border:1px solid #2a2a3a; border-radius:12px; padding:16px; margin-top:16px; }
+.admin-panel .title { color:#ff6b6b; font-weight:700; font-size:0.85rem; margin-bottom:12px; }
+.admin-form { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; }
+.admin-form input, .admin-form select {
+  padding:8px 12px; background:#0a0a14; border:1px solid #333; border-radius:8px;
+  color:#fff; font-family:'Rajdhani',sans-serif; font-size:0.88rem;
+}
+.admin-btn {
+  padding:9px 18px; background:#1a1a2e; border:1px solid #555;
+  color:#aaa; border-radius:8px; cursor:pointer;
+  font-family:'Rajdhani',sans-serif; font-weight:700;
+}
+.admin-btn:hover { border-color:var(--gold); color:var(--gold); }
+.admin-btn.danger { border-color:#ff174444; color:#ff8888; }
+.admin-btn.danger:hover { border-color:var(--red); }
+</style>
+
+<div class="page">
+  <a href="/brackets" class="back-link">← Atpakaļ</a>
+  <div class="header">
+    <h1>⚡ {{ b.name }}</h1>
+    <p style="color:#666;margin-bottom:14px;">{{ b.description or 'Paredzē pareizi katru raundi. Zaudē dzīvību par kļūdu. Pēdējie izdzīvojušie uzvar!' }}</p>
+    <div class="meta-chips">
+      <div class="chip">❤️ <b>{{ b.lives }}</b> lives</div>
+      <div class="chip">💰 <b>{{ b.prize_pool }}</b> coins balva</div>
+      <div class="chip">🎟️ <b>{{ b.entry_fee if b.entry_fee > 0 else 'Bezmaksas' }}</b></div>
+      <div class="chip">📊 <b>{{ b.status }}</b></div>
+    </div>
+
+    {% if my_entry %}
+    <div class="lives-display">
+      {% for i in range(my_entry.lives_left) %}❤️{% endfor %}
+      {% for i in range(b.lives - my_entry.lives_left) %}🖤{% endfor %}
+    </div>
+    {% if my_entry.eliminated %}
+    <div style="color:var(--red);font-weight:700;font-size:1.1rem;">❌ Tu esi izslēgts</div>
+    {% else %}
+    <div style="color:var(--green);font-weight:700;">✅ Tu spēlē — {{ my_entry.lives_left }} lives</div>
+    {% endif %}
+    {% elif b.status != 'finished' %}
+    <button id="join-btn" onclick="joinBracket()"
+      style="margin-top:12px;padding:12px 32px;
+             background:linear-gradient(135deg,#f5c842,#e6a800);
+             border:none;border-radius:10px;font-family:'Rajdhani',sans-serif;
+             font-size:1.1rem;font-weight:700;color:#000;cursor:pointer;">
+      ⚡ Pievienoties{% if b.entry_fee > 0 %} ({{ b.entry_fee }} coins){% endif %}
+    </button>
+    {% endif %}
+  </div>
+
+  <div class="layout">
+    <!-- LEFT: Rounds -->
+    <div>
+      <div class="panel">
+        <div class="panel-title">📋 Raundi</div>
+        {% if rounds %}
+          {% for r in rounds %}
+          <div class="round-card {{ r.status }}" id="round-{{ r.id }}">
+            <div class="round-num">Raunds {{ r.round_num }}</div>
+            <div class="round-event">📈 {{ r.event_title }}</div>
+
+            {% if r.status == 'active' and my_entry and not my_entry.eliminated %}
+              {% if r.my_pick %}
+                <div style="color:#888;font-size:0.85rem;margin-bottom:8px;">
+                  ✅ Likme iesniegta
+                </div>
+                <div class="opt-grid">
+                  {% for opt in r.options %}
+                  <div class="opt-btn {% if opt.id == r.my_pick.option_id %}selected{% endif %}">
+                    {{ opt.label }}
+                  </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div style="color:#f5c842;font-size:0.82rem;margin-bottom:8px;">⚡ Izvēlies savu likmi!</div>
+                <div class="opt-grid" id="opts-{{ r.id }}">
+                  {% for opt in r.options %}
+                  <div class="opt-btn" onclick="selectOpt({{ r.id }}, {{ opt.id }}, this)">
+                    {{ opt.label }}
+                  </div>
+                  {% endfor %}
+                </div>
+                <button class="pick-submit" id="pick-btn-{{ r.id }}"
+                        onclick="submitPick({{ b.id }}, {{ r.id }})" disabled>
+                  ✅ Iesniegt
+                </button>
+              {% endif %}
+
+            {% elif r.status == 'resolved' %}
+              <div class="opt-grid">
+                {% for opt in r.options %}
+                <div class="opt-btn
+                  {% if r.event_status == 'resolved' %}
+                    {% if opt.label == r.outcome %}correct{% endif %}
+                  {% endif %}
+                  {% if r.my_pick and opt.id == r.my_pick.option_id %}
+                    {% if r.my_pick.correct %}correct{% else %}wrong{% endif %}
+                  {% endif %}">
+                  {{ opt.label }}
+                  {% if r.my_pick and opt.id == r.my_pick.option_id %}
+                    {% if r.my_pick.correct %}✅{% else %}❌{% endif %}
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+              {% if r.outcome %}
+              <div style="color:#888;font-size:0.78rem;margin-top:6px;">
+                Pareizā atbilde: <strong style="color:var(--green)">{{ r.outcome }}</strong>
+              </div>
+              {% endif %}
+
+            {% else %}
+              <div style="color:#555;font-size:0.82rem;">
+                {% if r.status == 'pending' %}⏳ Gaida aktivizēšanu{% else %}⏸ Neaktīvs{% endif %}
+              </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
+          <div style="color:#333;text-align:center;padding:24px;">Nav pievienotu raundu vēl.</div>
+        {% endif %}
+      </div>
+
+      {% if payouts %}
+      <div class="panel">
+        <div class="panel-title">🏆 Izmaksas</div>
+        {% for p in payouts %}
+        <div class="lb-row">
+          <div class="lb-rank">
+            {% if p.place == 1 %}🥇{% elif p.place == 2 %}🥈{% elif p.place == 3 %}🥉{% else %}#{{ p.place }}{% endif %}
+          </div>
+          <div class="lb-name">{{ p.username }}</div>
+          <div style="color:var(--green);font-weight:700;">+{{ p.amount }} coins</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- RIGHT: Leaderboard + Admin -->
+    <div>
+      <div class="panel">
+        <div class="panel-title">👥 Spēlētāji ({{ entries|length }})</div>
+        {% for e in entries %}
+        <div class="lb-row {{ 'me' if e.user_id == user_id else '' }} {{ 'eliminated' if e.eliminated else '' }}">
+          <div class="lb-name">
+            {% if e.user_id == user_id %}⭐ {% endif %}
+            {{ e.display_name }}
+            {% if e.eliminated %}<span style="color:#ff4444;font-size:0.75rem;margin-left:4px;">IZSLĒGTS</span>{% endif %}
+          </div>
+          <div class="lb-lives">
+            {% for i in range(e.lives_left) %}
+            <span class="lb-heart">❤️</span>
+            {% endfor %}
+            {% if e.lives_left == 0 and not e.eliminated %}
+            <span style="color:#ff4444;font-size:0.75rem;">!</span>
+            {% endif %}
+          </div>
+        </div>
+        {% else %}
+        <div style="color:#333;text-align:center;padding:24px;">Nav spēlētāju vēl.</div>
+        {% endfor %}
+      </div>
+
+      {% if is_admin %}
+      <div class="admin-panel">
+        <div class="title">⚙️ Admin</div>
+
+        <div style="margin-bottom:12px;">
+          <div style="font-size:0.78rem;color:#555;margin-bottom:6px;">Pievienot raundi</div>
+          <div class="admin-form">
+            <input type="number" id="admin-event-id" placeholder="Event ID">
+            <button class="admin-btn" onclick="adminAddRound()">+ Raunds</button>
+          </div>
+          <div id="admin-round-msg" style="font-size:0.8rem;margin-top:4px;color:#888;"></div>
+        </div>
+
+        {% for r in rounds %}
+        {% if r.status != 'resolved' %}
+        <div style="background:#0a0a14;border-radius:8px;padding:10px;margin-bottom:8px;">
+          <div style="font-size:0.78rem;color:#666;margin-bottom:6px;">Raunds {{ r.round_num }}: {{ r.event_title[:40] }}</div>
+          {% if r.status == 'pending' %}
+          <button class="admin-btn" onclick="adminActivateRound({{ r.id }})">▶ Aktivizēt</button>
+          {% elif r.status == 'active' %}
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <select id="win-opt-{{ r.id }}" style="padding:6px;background:#0a0a14;border:1px solid #333;border-radius:6px;color:#fff;">
+              {% for opt in r.options %}
+              <option value="{{ opt.id }}">{{ opt.label }}</option>
+              {% endfor %}
+            </select>
+            <button class="admin-btn danger" onclick="adminResolveRound({{ r.id }})">✅ Atrisināt</button>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        <div id="admin-msg" style="font-size:0.82rem;margin-top:8px;color:#888;"></div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<script>
+const BID     = {{ b.id }};
+const ME      = {{ user_id }};
+const socket  = io({ transports: ['websocket', 'polling'] });
+
+socket.on('connect', () => socket.emit('join_bracket', { bid: BID }));
+socket.on('bracket_update', () => location.reload());
+socket.on('bracket_finished', () => location.reload());
+socket.on('bracket_round_start', () => location.reload());
+
+let selectedOpts = {};
+
+function selectOpt(roundId, optId, el) {
+  selectedOpts[roundId] = optId;
+  el.closest('.opt-grid').querySelectorAll('.opt-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  document.getElementById(`pick-btn-${roundId}`).disabled = false;
+}
+
+async function submitPick(bid, roundId) {
+  const optId = selectedOpts[roundId];
+  if (!optId) return;
+  const btn = document.getElementById(`pick-btn-${roundId}`);
+  btn.disabled = true; btn.textContent = '⏳';
+
+  const res  = await fetch(`/api/brackets/${bid}/pick`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ round_id: roundId, option_id: optId })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    btn.textContent = '✅ Iesniegts!';
+    btn.style.background = 'linear-gradient(135deg,#00e676,#00b34a)';
+    btn.style.color = '#000';
+  } else {
+    btn.disabled = false;
+    btn.textContent = '❌ ' + data.error;
+  }
+}
+
+async function joinBracket() {
+  const btn = document.getElementById('join-btn');
+  btn.disabled = true; btn.textContent = '⏳';
+  const res  = await fetch(`/api/brackets/${BID}/join`, { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    location.reload();
+  } else {
+    btn.disabled = false;
+    btn.textContent = '❌ ' + data.error;
+  }
+}
+
+// Admin functions
+async function adminAddRound() {
+  const eventId = parseInt(document.getElementById('admin-event-id').value);
+  const msg     = document.getElementById('admin-round-msg');
+  if (!eventId) { msg.textContent = 'Ievadi Event ID'; return; }
+  const res  = await fetch(`/api/admin/brackets/${BID}/rounds`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ event_id: eventId })
+  });
+  const data = await res.json();
+  msg.style.color = data.ok ? '#00e676' : '#ff4444';
+  msg.textContent = data.ok ? `✅ Raunds #${data.round_num} pievienots!` : '❌ ' + data.error;
+  if (data.ok) setTimeout(() => location.reload(), 800);
+}
+
+async function adminActivateRound(rid) {
+  const res  = await fetch(`/api/admin/brackets/${BID}/rounds/${rid}/activate`, { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) location.reload();
+}
+
+async function adminResolveRound(rid) {
+  const optId = parseInt(document.getElementById(`win-opt-${rid}`).value);
+  if (!confirm('Atrisināt šo raundi?')) return;
+  const res  = await fetch(`/api/admin/brackets/${BID}/rounds/${rid}/resolve`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ option_id: optId })
+  });
+  const data = await res.json();
+  if (data.ok) location.reload();
+  else document.getElementById('admin-msg').textContent = '❌ ' + data.error;
+}
+</script>
+{% endblock %}

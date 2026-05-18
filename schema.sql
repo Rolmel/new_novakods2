@@ -4,6 +4,64 @@
 -- ============================================================
 -- UPDATE users SET referral_code = encode(gen_random_bytes(4), 'hex') WHERE referral_code IS NULL;
 
+CREATE TABLE IF NOT EXISTS prediction_brackets (
+    id           SERIAL PRIMARY KEY,
+    name         VARCHAR(100) NOT NULL,
+    description  TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'upcoming', -- upcoming|active|finished
+    prize_pool   INTEGER NOT NULL DEFAULT 0,
+    entry_fee    INTEGER NOT NULL DEFAULT 0,
+    lives        INTEGER NOT NULL DEFAULT 3,
+    created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    starts_at    TIMESTAMPTZ NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS bracket_rounds (
+    id           SERIAL PRIMARY KEY,
+    bracket_id   INTEGER NOT NULL REFERENCES prediction_brackets(id) ON DELETE CASCADE,
+    round_num    INTEGER NOT NULL,
+    event_id     INTEGER NOT NULL REFERENCES prediction_events(id) ON DELETE CASCADE,
+    status       TEXT NOT NULL DEFAULT 'pending', -- pending|active|resolved
+    started_at   TIMESTAMPTZ,
+    resolved_at  TIMESTAMPTZ,
+    UNIQUE(bracket_id, round_num)
+);
+
+CREATE TABLE IF NOT EXISTS bracket_entries (
+    id           SERIAL PRIMARY KEY,
+    bracket_id   INTEGER NOT NULL REFERENCES prediction_brackets(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    lives_left   INTEGER NOT NULL DEFAULT 3,
+    eliminated   BOOLEAN NOT NULL DEFAULT FALSE,
+    eliminated_round INTEGER,
+    joined_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(bracket_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS bracket_picks (
+    id           SERIAL PRIMARY KEY,
+    bracket_id   INTEGER NOT NULL,
+    round_id     INTEGER NOT NULL REFERENCES bracket_rounds(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    option_id    INTEGER NOT NULL REFERENCES prediction_options(id),
+    correct      BOOLEAN,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(round_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS bracket_payouts (
+    bracket_id   INTEGER NOT NULL REFERENCES prediction_brackets(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    place        INTEGER NOT NULL,
+    amount       INTEGER NOT NULL,
+    paid_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY(bracket_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS bracket_picks_round ON bracket_picks(round_id, user_id);
+CREATE INDEX IF NOT EXISTS bracket_entries_bracket ON bracket_entries(bracket_id, eliminated);
+
 CREATE TABLE IF NOT EXISTS club_war_weeks (
     id            SERIAL PRIMARY KEY,
     week_start    DATE NOT NULL,

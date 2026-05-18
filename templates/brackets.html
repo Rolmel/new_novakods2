@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}⚡ Brackets{% endblock %}
+{% block content %}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Rajdhani:wght@400;600&display=swap');
+:root { --gold:#f5c842; --dark:#0a0a0f; --green:#00e676; --red:#ff1744; }
+body { background:var(--dark); color:#e0e0e0; font-family:'Rajdhani',sans-serif; }
+.page { max-width:860px; margin:0 auto; padding:24px 20px; }
+h1 { font-family:'Cinzel Decorative',serif; color:var(--gold); text-align:center; text-shadow:0 0 30px #f5c84244; margin-bottom:6px; }
+.balance-bar { text-align:center; color:var(--gold); font-size:1.1rem; margin-bottom:28px; font-weight:600; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:16px; }
+.bc {
+  background:#111118; border:1px solid #2a2a3a; border-radius:14px;
+  padding:20px; text-decoration:none; display:block; color:inherit;
+  transition:border-color .2s, transform .15s; position:relative;
+}
+.bc:hover { border-color:var(--gold); transform:translateY(-3px); }
+.bc.active { border-color:#00e67644; }
+.bc-status {
+  position:absolute; top:14px; right:14px;
+  display:inline-block; padding:2px 10px; border-radius:20px;
+  font-size:0.68rem; font-weight:700;
+}
+.s-upcoming { background:#f5c84218; border:1px solid #f5c84244; color:var(--gold); }
+.s-active   { background:#00e67618; border:1px solid #00e67644; color:var(--green); }
+.s-finished { background:#1a1a24;   border:1px solid #333;      color:#555; }
+.bc-name { font-family:'Cinzel Decorative',serif; font-size:1rem; color:var(--gold); margin-bottom:6px; }
+.bc-desc { font-size:0.8rem; color:#555; margin-bottom:14px; }
+.bc-meta { display:flex; gap:14px; font-size:0.78rem; color:#444; flex-wrap:wrap; }
+.bc-prize { color:var(--gold); font-size:1rem; font-weight:700; margin:10px 0 4px; }
+.empty { text-align:center; color:#333; padding:60px; }
+</style>
+
+<div class="page">
+  <h1>⚡ Prediction Brackets</h1>
+  <div class="balance-bar">💰 {{ "%.2f"|format(balance) }} coins</div>
+
+  {% if brackets %}
+  <div class="grid">
+    {% for b in brackets %}
+    <a class="bc {{ b.status }}" href="/brackets/{{ b.id }}">
+      <div class="bc-status s-{{ b.status }}">
+        {% if b.status == 'upcoming' %}⏳ Drīz
+        {% elif b.status == 'active' %}● Aktīvs
+        {% else %}✅ Beidzies{% endif %}
+      </div>
+      <div class="bc-name">⚡ {{ b.name }}</div>
+      <div class="bc-desc">{{ b.description or 'Paredzē pareizi. Izdzīvo.' }}</div>
+      <div class="bc-prize">💰 {{ b.prize_pool }} coins</div>
+      <div class="bc-meta">
+        <span>❤️ <b>{{ b.lives }} lives</b></span>
+        <span>👥 <b>{{ b.player_count }}</b> spēlētāji</span>
+        <span>💚 <b>{{ b.survivors }}</b> izdzīvoja</span>
+        <span>🎟️ <b>{{ b.entry_fee if b.entry_fee > 0 else 'Bezmaksas' }}</b></span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:3rem">⚡</div>
+    <div>Nav bracket vēl. Admin izveidos drīz!</div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

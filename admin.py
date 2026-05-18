@@ -5205,6 +5205,456 @@ def api_club_war_status(club_id):
 
     return jsonify({'war': dict(war)})
 
+@app.route('/brackets')
+@login_required
+def brackets_list():
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT b.*,
+               COUNT(DISTINCT be.user_id) AS player_count,
+               COUNT(DISTINCT be.user_id) FILTER (WHERE NOT be.eliminated) AS survivors
+        FROM prediction_brackets b
+        LEFT JOIN bracket_entries be ON be.bracket_id = b.id
+        GROUP BY b.id
+        ORDER BY b.starts_at DESC
+    """)
+    brackets = [dict(r) for r in cur.fetchall()]
+    balance  = get_or_create_balance(conn, session['user_id'])
+    cur.close(); conn.close()
+    return render_template('brackets.html', brackets=brackets, balance=balance)
+
+@app.route('/brackets/<int:bid>')
+@login_required
+def bracket_detail(bid):
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT * FROM prediction_brackets WHERE id = %s", (bid,))
+    b = cur.fetchone()
+    if not b:
+        conn.close(); flash('Nav atrasts', 'error')
+        return redirect(url_for('brackets_list'))
+
+    cur.execute("""
+        SELECT br.*, pe.title AS event_title, pe.status AS event_status,
+               pe.outcome
+        FROM bracket_rounds br
+        JOIN prediction_events pe ON pe.id = br.event_id
+        WHERE br.bracket_id = %s
+        ORDER BY br.round_num ASC
+    """, (bid,))
+    rounds = [dict(r) for r in cur.fetchall()]
+
+    # Options per round
+    for r in rounds:
+        cur.execute("""
+            SELECT po.id, po.label,
+                   COALESCE(pv.total_stake, 0) AS volume
+            FROM prediction_options po
+            LEFT JOIN prediction_volume pv ON pv.option_id = po.id
+            WHERE po.event_id = %s ORDER BY po.id
+        """, (r['event_id'],))
+        r['options'] = [dict(o) for o in cur.fetchall()]
+
+        cur.execute("""
+            SELECT option_id, correct FROM bracket_picks
+            WHERE round_id = %s AND user_id = %s
+        """, (r['id'], user_id))
+        pick = cur.fetchone()
+        r['my_pick'] = dict(pick) if pick else None
+
+    cur.execute("""
+        SELECT * FROM bracket_entries WHERE bracket_id = %s AND user_id = %s
+    """, (bid, user_id))
+    my_entry = cur.fetchone()
+
+    cur.execute("""
+        SELECT be.*, u.username,
+               COALESCE(p.display_name, u.username) AS display_name,
+               COALESCE(pt.tier, 'unranked') AS tier
+        FROM bracket_entries be
+        JOIN users u ON u.id = be.user_id
+        LEFT JOIN profiles p ON p.user_id = be.user_id
+        LEFT JOIN predictor_tiers pt ON pt.user_id = be.user_id
+        WHERE be.bracket_id = %s
+        ORDER BY be.lives_left DESC, be.eliminated ASC, be.joined_at ASC
+    """, (bid,))
+    entries = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT bp.*, u.username FROM bracket_payouts bp
+        JOIN users u ON u.id = bp.user_id
+        WHERE bp.bracket_id = %s ORDER BY bp.place
+    """, (bid,))
+    payouts = [dict(r) for r in cur.fetchall()]
+
+    balance = get_or_create_balance(conn, user_id)
+    cur.close(); conn.close()
+
+    return render_template('bracket_detail.html',
+                           b=dict(b), rounds=rounds,
+                           my_entry=dict(my_entry) if my_entry else None,
+                           entries=entries, payouts=payouts,
+                           balance=balance, user_id=user_id,
+                           is_admin=session.get('is_admin'))
+
+
+@app.route('/api/brackets/<int:bid>/join', methods=['POST'])
+@login_required
+def api_bracket_join(bid):
+    user_id = session['user_id']
+    conn    = get_db_connection()
+    cur     = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT * FROM prediction_brackets WHERE id = %s", (bid,))
+    b = cur.fetchone()
+    if not b or b['status'] not in ('upcoming', 'active'):
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Brackets nav pieejams'}), 400
+
+    cur.execute("""
+        SELECT id FROM bracket_entries
+        WHERE bracket_id = %s AND user_id = %s
+    """, (bid, user_id))
+    if cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Jau pievienojies'}), 400
+
+    balance = get_or_create_balance(conn, user_id)
+    if b['entry_fee'] > 0 and balance < b['entry_fee']:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nepietiek monētu'}), 400
+
+    cur2 = conn.cursor()
+    if b['entry_fee'] > 0:
+        cur2.execute("""
+            UPDATE wallets SET balance = balance - %s WHERE user_id = %s
+        """, (b['entry_fee'], user_id))
+        cur2.execute("""
+            UPDATE prediction_brackets SET prize_pool = prize_pool + %s WHERE id = %s
+        """, (b['entry_fee'], bid))
+        cur2.execute("""
+            INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+            SELECT %s, %s, 'bracket:entry', %s, balance FROM wallets WHERE user_id = %s
+        """, (user_id, -b['entry_fee'], str(bid), user_id))
+
+    cur2.execute("""
+        INSERT INTO bracket_entries (bracket_id, user_id, lives_left)
+        VALUES (%s, %s, %s)
+    """, (bid, user_id, b['lives']))
+    conn.commit()
+    cur.close(); cur2.close(); conn.close()
+
+    socketio.emit('bracket_update', {'bracket_id': bid}, room=f'bracket_{bid}')
+    return jsonify({'ok': True, 'lives': b['lives']})
+
+
+@app.route('/api/brackets/<int:bid>/pick', methods=['POST'])
+@login_required
+def api_bracket_pick(bid):
+    user_id   = session['user_id']
+    data      = request.json or {}
+    round_id  = int(data.get('round_id', 0))
+    option_id = int(data.get('option_id', 0))
+
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("""
+        SELECT be.eliminated, be.lives_left FROM bracket_entries be
+        WHERE be.bracket_id = %s AND be.user_id = %s
+    """, (bid, user_id))
+    entry = cur.fetchone()
+    if not entry:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nav reģistrēts'}), 400
+    if entry['eliminated']:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Tu esi izslēgts'}), 400
+
+    cur.execute("""
+        SELECT br.*, pe.status AS event_status
+        FROM bracket_rounds br
+        JOIN prediction_events pe ON pe.id = br.event_id
+        WHERE br.id = %s AND br.bracket_id = %s
+    """, (round_id, bid))
+    round_ = cur.fetchone()
+    if not round_ or round_['status'] != 'active':
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Runda nav aktīva'}), 400
+
+    cur.execute("""
+        SELECT id FROM bracket_picks WHERE round_id = %s AND user_id = %s
+    """, (round_id, user_id))
+    if cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Likme jau iesniegta'}), 400
+
+    cur.execute("""
+        SELECT id FROM prediction_options
+        WHERE id = %s AND event_id = %s
+    """, (option_id, round_['event_id']))
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Nepareiza opcija'}), 400
+
+    cur2 = conn.cursor()
+    cur2.execute("""
+        INSERT INTO bracket_picks (bracket_id, round_id, user_id, option_id)
+        VALUES (%s, %s, %s, %s)
+    """, (bid, round_id, user_id, option_id))
+    conn.commit()
+    cur.close(); cur2.close(); conn.close()
+
+    return jsonify({'ok': True})
+
+@app.route('/api/admin/brackets', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_create_bracket():
+    d = request.json or {}
+    name      = d.get('name', '').strip()[:100]
+    entry_fee = int(d.get('entry_fee', 0))
+    lives     = int(d.get('lives', 3))
+    starts_at = d.get('starts_at')
+    prize_pool = int(d.get('prize_pool', 0))
+    description = d.get('description', '')
+
+    if not name or not starts_at:
+        return jsonify({'ok': False, 'error': 'Trūkst lauki'}), 400
+
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    cur.execute("""
+        INSERT INTO prediction_brackets
+            (name, description, entry_fee, lives, prize_pool, starts_at, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """, (name, description, entry_fee, lives, prize_pool,
+          starts_at, session['user_id']))
+    bid = cur.fetchone()[0]
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({'ok': True, 'id': bid})
+
+@app.route('/api/admin/brackets/<int:bid>/rounds', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_bracket_add_round(bid):
+    d        = request.json or {}
+    event_id = int(d.get('event_id', 0))
+
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT status FROM prediction_events WHERE id = %s", (event_id,))
+    ev = cur.fetchone()
+    if not ev or ev['status'] not in ('open', 'closed'):
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Notikums nav pieejams'}), 400
+
+    cur.execute("""
+        SELECT COALESCE(MAX(round_num), 0) + 1 AS next_round
+        FROM bracket_rounds WHERE bracket_id = %s
+    """, (bid,))
+    next_round = cur.fetchone()['next_round']
+
+    cur2 = conn.cursor()
+    cur2.execute("""
+        INSERT INTO bracket_rounds (bracket_id, round_num, event_id)
+        VALUES (%s, %s, %s) RETURNING id
+    """, (bid, next_round, event_id))
+    round_id = cur2.fetchone()[0]
+    conn.commit(); cur.close(); cur2.close(); conn.close()
+
+    return jsonify({'ok': True, 'round_id': round_id, 'round_num': next_round})
+
+@app.route('/api/admin/brackets/<int:bid>/rounds/<int:rid>/activate', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_bracket_activate_round(bid, rid):
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    cur.execute("""
+        UPDATE bracket_rounds
+        SET status = 'active', started_at = NOW()
+        WHERE id = %s AND bracket_id = %s AND status = 'pending'
+    """, (rid, bid))
+    cur.execute("""
+        UPDATE prediction_brackets SET status = 'active' WHERE id = %s
+    """, (bid,))
+    conn.commit(); cur.close(); conn.close()
+
+    socketio.emit('bracket_round_start', {'bracket_id': bid, 'round_id': rid},
+                  room=f'bracket_{bid}')
+    return jsonify({'ok': True})
+
+def _resolve_bracket_round(conn, bid: int, rid: int, winning_option_id: int):
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur2 = conn.cursor()
+
+    # Grade all picks
+    cur.execute("SELECT * FROM bracket_picks WHERE round_id = %s", (rid,))
+    picks = cur.fetchall()
+
+    for pick in picks:
+        correct = (pick['option_id'] == winning_option_id)
+        cur2.execute("""
+            UPDATE bracket_picks SET correct = %s
+            WHERE id = %s
+        """, (correct, pick['id']))
+
+        if not correct:
+            # Lose a life
+            cur2.execute("""
+                UPDATE bracket_entries
+                SET lives_left = lives_left - 1
+                WHERE bracket_id = %s AND user_id = %s
+                RETURNING lives_left
+            """, (bid, pick['user_id']))
+            row = cur2.fetchone()
+            if row and row[0] <= 0:
+                cur2.execute("""
+                    UPDATE bracket_entries
+                    SET eliminated = TRUE, eliminated_round = %s
+                    WHERE bracket_id = %s AND user_id = %s
+                """, (rid, bid, pick['user_id']))
+                cur2.execute("""
+                    INSERT INTO notifications (user_id, message) VALUES (%s, %s)
+                """, (pick['user_id'],
+                      '❌ Izslēgts no bracket! Pievienojies nākamajam!'))
+
+    # Users who didn't pick also lose a life
+    cur.execute("""
+        SELECT user_id FROM bracket_entries
+        WHERE bracket_id = %s AND eliminated = FALSE
+          AND user_id NOT IN (
+              SELECT user_id FROM bracket_picks WHERE round_id = %s
+          )
+    """, (bid, rid))
+    no_picks = cur.fetchall()
+    for row in no_picks:
+        uid = row['user_id']
+        cur2.execute("""
+            UPDATE bracket_entries
+            SET lives_left = lives_left - 1
+            WHERE bracket_id = %s AND user_id = %s
+            RETURNING lives_left
+        """, (bid, uid))
+        r = cur2.fetchone()
+        if r and r[0] <= 0:
+            cur2.execute("""
+                UPDATE bracket_entries
+                SET eliminated = TRUE, eliminated_round = %s
+                WHERE bracket_id = %s AND user_id = %s
+            """, (rid, bid, uid))
+
+    cur2.execute("""
+        UPDATE bracket_rounds
+        SET status = 'resolved', resolved_at = NOW()
+        WHERE id = %s
+    """, (rid,))
+
+    conn.commit()
+
+    # Check if bracket is over (≤ 3 survivors or no rounds left)
+    cur.execute("""
+        SELECT COUNT(*) AS n FROM bracket_entries
+        WHERE bracket_id = %s AND eliminated = FALSE
+    """, (bid,))
+    survivors = cur.fetchone()['n']
+
+    cur.execute("""
+        SELECT COUNT(*) AS n FROM bracket_rounds
+        WHERE bracket_id = %s AND status = 'pending'
+    """, (bid,))
+    pending = cur.fetchone()['n']
+
+    cur.close(); cur2.close()
+
+    if survivors <= 3 or pending == 0:
+        _finish_bracket(conn, bid)
+
+@app.route('/api/admin/brackets/<int:bid>/rounds/<int:rid>/resolve', methods=['POST'])
+@login_required
+@admin_required
+def api_admin_bracket_resolve_round(bid, rid):
+    d = request.json or {}
+    winning_option_id = int(d.get('option_id', 0))
+
+    conn = get_db_connection()
+    _resolve_bracket_round(conn, bid, rid, winning_option_id)
+    conn.close()
+
+    socketio.emit('bracket_update', {'bracket_id': bid}, room=f'bracket_{bid}')
+    return jsonify({'ok': True})
+
+def _finish_bracket(conn, bid: int):
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT prize_pool FROM prediction_brackets WHERE id = %s", (bid,))
+    b = cur.fetchone()
+    if not b:
+        cur.close(); return
+
+    prize_pool = b['prize_pool']
+
+    cur.execute("""
+        SELECT user_id FROM bracket_entries
+        WHERE bracket_id = %s AND eliminated = FALSE
+        ORDER BY lives_left DESC, joined_at ASC
+    """, (bid,))
+    survivors = [r['user_id'] for r in cur.fetchall()]
+
+    # Also include eliminated players for consolation (top 10)
+    cur.execute("""
+        SELECT user_id FROM bracket_entries
+        WHERE bracket_id = %s AND eliminated = TRUE
+        ORDER BY eliminated_round DESC, lives_left DESC
+        LIMIT 7
+    """, (bid,))
+    runners_up = [r['user_id'] for r in cur.fetchall()]
+
+    ranked = survivors + runners_up
+    payouts = []
+    prizes  = [50, 30, 20]  # % of pool for top 3
+
+    cur2 = conn.cursor()
+    distributed = 0
+    for i, uid in enumerate(ranked[:3]):
+        pct    = prizes[i] if i < len(prizes) else 0
+        amount = (prize_pool * pct // 100)
+        if amount <= 0:
+            continue
+        distributed += amount
+        cur2.execute("""
+            UPDATE wallets SET balance = balance + %s WHERE user_id = %s
+        """, (amount, uid))
+        cur2.execute("""
+            INSERT INTO wallet_log (user_id, delta, reason, ref_id, balance_after)
+            SELECT %s, %s, 'bracket:payout', %s, balance FROM wallets WHERE user_id = %s
+        """, (uid, amount, str(bid), uid))
+        cur2.execute("""
+            INSERT INTO bracket_payouts (bracket_id, user_id, place, amount)
+            VALUES (%s, %s, %s, %s)
+        """, (bid, uid, i + 1, amount))
+        medals = ['🥇', '🥈', '🥉']
+        cur2.execute("""
+            INSERT INTO notifications (user_id, message) VALUES (%s, %s)
+        """, (uid, f'{medals[i]} Bracket beidzies! +{amount} coins!'))
+
+    cur2.execute("""
+        UPDATE prediction_brackets SET status = 'finished' WHERE id = %s
+    """, (bid,))
+    conn.commit()
+    cur.close(); cur2.close()
+
+    socketio.emit('bracket_finished', {'bracket_id': bid})
+
+@socketio.on('join_bracket')
+def on_join_bracket(data):
+    join_room(f'bracket_{int(data.get("bid", 0))}')
+
 def _resolve_battles_for_event(conn, event_id: int, winning_option_id: int):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
