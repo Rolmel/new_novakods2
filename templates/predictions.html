@@ -426,6 +426,46 @@ async function submitPrediction() {
   }
 }
 
+
+
+async function loadExpertSpotlight() {
+  const res  = await fetch('/api/predictions/expert_spotlight');
+  const data = await res.json();
+  if (!data.experts.length) return;
+
+  const TIER_COLORS = {
+    oracle: '#a855f7', expert: '#f5c842', gold: '#fbbf24'
+  };
+
+  const html = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+                gap:12px;margin-bottom:24px;">
+      ${data.experts.map(e => `
+        <a href="/u/${e.username}" style="
+          background:#111118;border:1px solid ${TIER_COLORS[e.tier] || '#2a2a3a'};
+          border-radius:12px;padding:14px;text-decoration:none;color:inherit;
+          display:block;transition:transform .15s;
+        " onmouseover="this.style.transform='translateY(-3px)'"
+           onmouseout="this.style.transform=''">
+          <div style="font-weight:700;color:${TIER_COLORS[e.tier]};margin-bottom:4px;">
+            ${e.tier === 'oracle' ? '🔮' : e.tier === 'expert' ? '⭐' : '🥇'}
+            ${e.display_name}
+          </div>
+          <div style="font-size:0.8rem;color:#555;margin-bottom:8px;">Sērija: 
+            <strong style="color:#00e676">${e.current_streak}🔥</strong>
+          </div>
+          <div style="font-size:0.78rem;color:#888;">
+            ${e.win_rate}% uzvaras · +${e.profit} profit
+          </div>
+        </a>
+      `).join('')}
+    </div>`;
+
+  document.getElementById('events-grid').insertAdjacentHTML('beforebegin', html);
+}
+
+loadExpertSpotlight();
+
 async function loadPredictionLeaderboard() {
     const res  = await fetch('/api/predictions/leaderboard');
     const data = await res.json();
@@ -503,6 +543,9 @@ async function loadPredictionLeaderboard() {
     }
 
     html += `</tbody></table></div>`;
+
+
+
 
     const container = document.getElementById('events-grid');
     container.insertAdjacentHTML('afterend', html);

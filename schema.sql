@@ -4,6 +4,19 @@
 -- ============================================================
 -- UPDATE users SET referral_code = encode(gen_random_bytes(4), 'hex') WHERE referral_code IS NULL;
 
+CREATE TABLE IF NOT EXISTS club_war_weeks (
+    id            SERIAL PRIMARY KEY,
+    week_start    DATE NOT NULL,
+    club1_id      INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    club2_id      INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    club1_correct INTEGER NOT NULL DEFAULT 0,
+    club2_correct INTEGER NOT NULL DEFAULT 0,
+    winner_id     INTEGER REFERENCES clubs(id),
+    resolved      BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (week_start, club1_id, club2_id)
+);
+
 
 CREATE TABLE IF NOT EXISTS battle_queue (
     id          SERIAL PRIMARY KEY,

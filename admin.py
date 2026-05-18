@@ -1954,6 +1954,8 @@ def _start_tournament_scheduler():
         while True:
             socketio.sleep(30)
             try:
+                
+
                 conn = get_db_connection()
                 cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -1975,6 +1977,15 @@ def _start_tournament_scheduler():
                         except Exception as e:
                             app.logger.error(f'[weekly_league] award error: {e}')
                     cur_chk.close()
+
+                # Inside the scheduler loop, after weekly league prizes:
+                if today_d.weekday() == 0:  # Monday
+                    try:
+                        conn_war = get_db_connection()
+                        _create_weekly_club_wars(conn_war)
+                        conn_war.close()
+                    except Exception as e:
+                        app.logger.error(f'[club_wars] {e}')    
 
                 cur.execute("""
                     UPDATE tournaments SET status = 'active'
@@ -2051,6 +2062,47 @@ def _resolve_tournament(conn, tid: int):
         'tiers':         tiers,
     }, room=f'tournament_{tid}')
     app.logger.info(f'[tournament] resolved tid={tid}, paid {len(tiers)} players')
+
+def _resolve_club_war(conn, war_id: int):
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM club_war_weeks WHERE id = %s", (war_id,))
+    war = cur.fetchone()
+    if not war or war['resolved']:
+        cur.close()
+        return
+
+    winner_id = None
+    if war['club1_correct'] > war['club2_correct']:
+        winner_id = war['club1_id']
+    elif war['club2_correct'] > war['club1_correct']:
+        winner_id = war['club2_id']
+    # else: draw
+
+    PRIZE = 200  # coins to every member of winning club
+    cur2  = conn.cursor()
+    cur2.execute(
+        "UPDATE club_war_weeks SET resolved=TRUE, winner_id=%s WHERE id=%s",
+        (winner_id, war_id)
+    )
+
+    if winner_id:
+        cur2.execute(
+            "SELECT user_id FROM club_members WHERE club_id = %s", (winner_id,)
+        )
+        for row in cur2.fetchall():
+            uid = row[0]
+            cur2.execute(
+                "UPDATE wallets SET balance = balance + %s WHERE user_id = %s",
+                (PRIZE, uid)
+            )
+            cur2.execute(
+                "INSERT INTO notifications (user_id, message) VALUES (%s, %s)",
+                (uid, f'⚔️ Klubs uzvarēja nedēļas karu! +{PRIZE} coins!')
+            )
+
+    conn.commit()
+    cur.close()
+    cur2.close()
 
 @app.route('/api/win_card')
 @login_required
@@ -4753,6 +4805,83 @@ def _update_prediction_stats(conn, event_id: int, winning_option_id: int):
     cur.close()
     cur2.close()
 
+@app.route('/api/predictions/expert_spotlight')
+@login_required
+def api_expert_spotlight():
+    """Top 3 predictors by win rate this week, shown on predictions page."""
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT
+            u.id, u.username,
+            COALESCE(p.display_name, u.username) AS display_name,
+            COALESCE(p.avatar_path, '')           AS avatar_path,
+            pt.tier,
+            ps.current_streak,
+            ps.total_wins,
+            ps.total_bets,
+            ROUND(ps.total_wins::numeric / NULLIF(ps.total_bets, 0) * 100, 1) AS win_rate,
+            (ps.total_returned - ps.total_staked) AS profit
+        FROM prediction_stats ps
+        JOIN predictor_tiers pt ON pt.user_id = ps.user_id
+        JOIN users u ON u.id = ps.user_id
+        LEFT JOIN profiles p ON p.user_id = ps.user_id
+        WHERE pt.tier IN ('gold', 'expert', 'oracle')
+          AND ps.total_bets >= 10
+          AND ps.current_streak >= 2
+        ORDER BY ps.current_streak DESC, win_rate DESC
+        LIMIT 3
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return jsonify({'experts': rows})
+
+    
+def _create_weekly_club_wars(conn):
+    """
+    Every Monday: pair clubs by member count into matchups.
+    Each member's prediction results that week count toward the club.
+    """
+    from datetime import date, timedelta
+    today      = date.today()
+    week_start = today - timedelta(days=today.weekday())
+
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Already created this week?
+    cur.execute(
+        "SELECT 1 FROM club_war_weeks WHERE week_start = %s LIMIT 1",
+        (week_start,)
+    )
+    if cur.fetchone():
+        cur.close()
+        return
+
+    cur.execute("""
+        SELECT c.id, COUNT(cm.user_id) AS member_count
+        FROM clubs c
+        JOIN club_members cm ON cm.club_id = c.id
+        GROUP BY c.id
+        HAVING COUNT(cm.user_id) >= 2
+        ORDER BY RANDOM()
+    """)
+    clubs = [dict(r) for r in cur.fetchall()]
+    cur2  = conn.cursor()
+
+    # Pair them up: [0,1], [2,3], etc.
+    for i in range(0, len(clubs) - 1, 2):
+        c1, c2 = clubs[i], clubs[i + 1]
+        cur2.execute("""
+            INSERT INTO club_war_weeks (week_start, club1_id, club2_id)
+            VALUES (%s, %s, %s)
+            ON CONFLICT DO NOTHING
+        """, (week_start, c1['id'], c2['id']))
+
+    conn.commit()
+    cur.close()
+    cur2.close()
+
 def _update_option_prices(conn, event_id):
     """Recalculate implied probability for each option after a new bet."""
     cur = conn.cursor()
@@ -4837,6 +4966,50 @@ def predictions_list():
                            is_admin=session.get('is_admin', False),
                            user_tier=user_tier,
                            tier_rank=TIER_RANK)
+
+
+def _update_club_war_scores(conn, event_id: int, winning_user_ids: list[int]):
+    """Called after resolve. Credit correct predictors' clubs in active wars."""
+    from datetime import date, timedelta
+    today      = date.today()
+    week_start = today - timedelta(days=today.weekday())
+
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        "SELECT * FROM club_war_weeks WHERE week_start = %s AND resolved = FALSE",
+        (week_start,)
+    )
+    wars = cur.fetchall()
+    if not wars:
+        cur.close()
+        return
+
+    cur2 = conn.cursor()
+    for uid in winning_user_ids:
+        cur.execute(
+            "SELECT club_id FROM club_members WHERE user_id = %s LIMIT 1",
+            (uid,)
+        )
+        row = cur.fetchone()
+        if not row:
+            continue
+        club_id = row['club_id']
+
+        for war in wars:
+            if war['club1_id'] == club_id:
+                cur2.execute(
+                    "UPDATE club_war_weeks SET club1_correct = club1_correct + 1 WHERE id = %s",
+                    (war['id'],)
+                )
+            elif war['club2_id'] == club_id:
+                cur2.execute(
+                    "UPDATE club_war_weeks SET club2_correct = club2_correct + 1 WHERE id = %s",
+                    (war['id'],)
+                )
+
+    conn.commit()
+    cur.close()
+    cur2.close()
 
 
 @app.route('/api/predictions/<int:event_id>/bet', methods=['POST'])
@@ -4984,6 +5157,8 @@ def api_prediction_resolve(event_id):
     _update_prediction_stats(conn, event_id, winning_option_id)
     _resolve_duels_for_event(conn, event_id, winning_option_id)  # before close
     _resolve_battles_for_event(conn, event_id, winning_option_id)
+    winning_user_ids = [w['user_id'] for w in winners]
+    _update_club_war_scores(conn, event_id, winning_user_ids)
     _resolve_club_challenges(conn, event_id, winning_option_id)
 
     socketio.emit('prediction_resolved', {
@@ -4998,6 +5173,37 @@ def api_prediction_resolve(event_id):
     conn.close()
 
     return jsonify({'ok': True, 'total_pot': total_pot, 'winners': len(winners)})
+
+@app.route('/api/clubs/<int:club_id>/war')
+@login_required
+def api_club_war_status(club_id):
+    """Current week's war status for a club."""
+    from datetime import date, timedelta
+    today      = date.today()
+    week_start = today - timedelta(days=today.weekday())
+
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT cw.*,
+               c1.name AS club1_name,
+               c2.name AS club2_name
+        FROM club_war_weeks cw
+        JOIN clubs c1 ON c1.id = cw.club1_id
+        JOIN clubs c2 ON c2.id = cw.club2_id
+        WHERE cw.week_start = %s
+          AND (cw.club1_id = %s OR cw.club2_id = %s)
+          AND cw.resolved = FALSE
+        LIMIT 1
+    """, (week_start, club_id, club_id))
+    war = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not war:
+        return jsonify({'war': None})
+
+    return jsonify({'war': dict(war)})
 
 def _resolve_battles_for_event(conn, event_id: int, winning_option_id: int):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
